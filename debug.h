@@ -3,13 +3,13 @@
 #include "zSettings.h"
 
 #ifdef SERIAL_DEBUG
-  #define DEBUG_BEGIN() debugSerial.begin(SERIAL_BAUD); debugSerial.setTimeout(SERIAL_TIMEOUT)
-  #define DEBUG_PRINT(x) debugSerial.print(x)
-  #define DEBUG_PRINTN(x) debugSerial.println(x)
-  #define DEBUG_PRINTLN(x) debugSerial.println(x)
+  #define DEBUG_BEGIN(...) do { debugSerial.begin(SERIAL_BAUD); debugSerial.setTimeout(SERIAL_TIMEOUT); } while (0)
+  #define DEBUG_PRINT(...)  debugSerial.print(__VA_ARGS__)
+  #define DEBUG_PRINTN(...) debugSerial.println(__VA_ARGS__)
+  #define DEBUG_PRINTLN(...) debugSerial.println(__VA_ARGS__)
 #else
-  #define DEBUG_BEGIN()
-  #define DEBUG_PRINT(x)
-  #define DEBUG_PRINTN(x)
-  #define DEBUG_PRINTLN(x)
+  #define DEBUG_BEGIN(...) do { } while (0)
+  #define DEBUG_PRINT(...) do { } while (0)
+  #define DEBUG_PRINTN(...) do { } while (0)
+  #define DEBUG_PRINTLN(...) do { } while (0)
 #endif

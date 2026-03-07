@@ -34,6 +34,8 @@ void loraTx10sec() {
 
 void loraTxFunc() {
   static unsigned long ackTime = 0;
+  static bool ackReadyToSend = false;
+  static bool currentUpdateForced = false;
 
   if (loraAck) {
 
@@ -41,15 +43,35 @@ void loraTxFunc() {
     // First time ack detected → start timer
     if (ackTime == 0) {
       ackTime = millis();
+      ackReadyToSend = false;
+      currentUpdateForced = false;
     }
 
-    // If 5 seconds have passed since ack
-    if (millis() - ackTime >= 3000) {
+    // OPTIMIZED DELAY: 1500ms to allow motor current to stabilize
+    // Motor current takes ~1000ms to reach steady state
+    // emonFunc() updates every 1000ms
+    // This ensures m1StaVars reflects actual motor state
+    if (millis() - ackTime >= 1200 && !currentUpdateForced) {
+      // Force immediate current reading update at 1200ms
+      // This ensures we have fresh data before sending ACK at 1500ms
+      forceCurrentUpdate();
+      currentUpdateForced = true;
+    }
 
+    if (millis() - ackTime >= 1500 && !ackReadyToSend) {
+      ackReadyToSend = true;
+    }
+
+    // Send ACK after delay AND ready flag
+    if (ackReadyToSend) {
+      // Double-check motor status for accuracy
+      // m1StaVars is updated by motorStaCheck() based on current readings
       if (m1StaVars) {
         encryptNTx("[1N]");
+        DEBUG_PRINTN(F("ACK: Motor ON"));
       } else {
         encryptNTx("[1F]");
+        DEBUG_PRINTN(F("ACK: Motor OFF"));
       }
 
     // const char* messages[] = { "[M11]", "[M10]", "[M21]", "[M20]", "[M00]" };
@@ -68,6 +90,7 @@ void loraTxFunc() {
       // Reset state
       loraAck = 0;
       ackTime = 0;
+      ackReadyToSend = false;
     }
   }
 }

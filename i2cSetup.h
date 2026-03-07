@@ -1,4 +1,4 @@
-// ========== TWI1 (I2C) Low-Level Functions ==========
+  // ========== TWI1 (I2C) Low-Level Functions ==========
 void i2c1Init() {
   TWI1.MBAUD = (F_CPU / (2 * 100000UL)) - 5;
   TWI1.MCTRLA = TWI_ENABLE_bm;

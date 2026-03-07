@@ -1,7 +1,7 @@
 #include <EEPROM.h>
+#include <string.h>
 
-#define CONFIG_START 30
-#define CONFIG_VERSION "8671"
+// CONFIG_START and CONFIG_VERSION are defined in zSettings.h (included first)
 
 struct StoreStruct {
   char version[5];
@@ -24,20 +24,40 @@ struct StoreStruct {
   char sch[10][19];
   char lasRemM1[6];
 
-  char remote[20];
+  char remote[21];    // 20-char remote chip-serial + null; "" = not yet paired
+  char gateway[21];   // 20-char GW ID + null; "" = not yet paired with gateway
+  uint8_t rf_locked;  // 0 = using default RF params, 1 = OPER channel (post-pairing)
+
+  uint16_t senseTime;   // Sense time in seconds (10–120)
+  uint8_t  onRelay;     // ON relay latch in seconds (2–5)
+  uint8_t  offRelay;    // OFF relay latch in seconds (2–5)
 
   uint8_t configflag : 1;
 };
 
 StoreStruct storage;
+static StoreStruct storageShadow;
+static bool storageShadowValid = false;
+
+static void markStorageShadow() {
+  memcpy(&storageShadow, &storage, sizeof(storage));
+  storageShadowValid = true;
+}
+
+static bool isStorageDirty() {
+  if (!storageShadowValid) {
+    return true;
+  }
+  return memcmp(&storageShadow, &storage, sizeof(storage)) != 0;
+}
 
 StoreStruct storage_default = {
   CONFIG_VERSION,
   "SMART PUMP-2025",
   0,
   0,
-  500,
-  200,
+  450,  // ovrVol default: mid-range of valid 350-500 V (was 500)
+  280,  // undVol default: minimum of valid 280-350 V range per spec (was 200, below minimum)
 
   0,
   0.1,
@@ -56,7 +76,12 @@ StoreStruct storage_default = {
     "z00000000000000000",
     "z00000000000000000" },
   "z0000",
-  REMOTE_ID,
+  "",    // remote: empty — set via LoRa pairing
+  "",    // gateway: empty — set via LoRa pairing
+  0,     // rf_locked: 0 = not yet on operational channel
+  10,    // senseTime default: 10 s
+  2,     // onRelay default: 2 s
+  3,     // offRelay default: 3 s
   0
 };
 
@@ -105,8 +130,11 @@ void printStorage() {
   Serial3.println(storage.app2Run);
 
   Serial3.print(F("Remote ID: "));
-  //Serial3.println(storage.remote);
-  Serial3.println(REMOTE_ID);
+  Serial3.println(storage.remote);
+  Serial3.print(F("Gateway ID: "));
+  Serial3.println(storage.gateway);
+  Serial3.print(F("RF locked: "));
+  Serial3.println(storage.rf_locked);
 
   Serial3.println(F("========================"));
 }
@@ -125,6 +153,7 @@ void con_default() {
       Serial3.println(t);
     }
   }
+  markStorageShadow();
 }
 
 
@@ -152,12 +181,24 @@ void loadcon() {
   //strncpy(storage.remote, REMOTE_ID, sizeof(storage.remote) - 1);
   //storage.remote[sizeof(storage.remote) - 1] = '\0';
 
-  storage.remote[20] = '\0';  // ensure null termination
+  storage.remote[sizeof(storage.remote)  - 1] = '\0';  // ensure null termination
+  storage.gateway[sizeof(storage.gateway) - 1] = '\0'; // ensure null termination
+  if (storage.modeM1 >= '0' && storage.modeM1 <= '5') {
+    storage.modeM1 = storage.modeM1 - '0';
+  } else if (storage.modeM1 == 6) {
+    storage.modeM1 = 5;
+  } else if (storage.modeM1 > 5) {
+    storage.modeM1 = 0;
+  }
 
   printStorage();
+  markStorageShadow();
 }
 
 void savecon() {
+  if (!isStorageDirty()) {
+    return;
+  }
   Serial3.println("Saving to EEPROM...");
   // Write the structure to EEPROM
   for (unsigned int t = 0; t < sizeof(storage); t++) {
@@ -169,5 +210,6 @@ void savecon() {
       Serial3.println(t);
     }
   }
+  markStorageShadow();
   Serial3.println("Save complete.");
 }

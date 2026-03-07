@@ -83,13 +83,13 @@ void rotaryVal() {
 
 
 void mainMenuShow() {
-  delay(2000);
+  delay(800);
   menuUiFunc = 1;
-  menuPos = 0;
-  mlvl4 = 1;
+  menuPos = 1000;
+  mlvl4 = 0;
   mlvl3 = 0;
   mlvl2 = 0;
-  mlvl1 = 0;
+  mlvl1 = 1;
 }
 
 
@@ -100,8 +100,8 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
   bool okSelec = 0;
   bool canSelec = 0;
   bool blinker = 0;
-  int tVal1 = 0;
-  int tVal2 = 0;
+  int tVal1 = t1;
+  int tVal2 = t2;
   int bpCounter = 0;
   unsigned long lastmillis = millis();
   unsigned long selfDestruct = millis();
@@ -110,12 +110,16 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
   snprintf(lcd_buf2, sizeof(lcd_buf2), "                 ");
   while (1) {
     wdt_reset();
-    if (millis() - selfDestruct >= 300000) {
+    if (millis() - selfDestruct >= 30000) {
       mainMenuShow();
       return 0;
     }
 
     rotaryFunc();
+    if (takeMenuPress()) {
+      mainMenuShow();
+      return 0;
+    }
 
     // --- Increment / Decrement ---
     if (rotValPlus || rotValMinus) {
@@ -179,17 +183,17 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
 
       if (okSelec) {
         if (blinker) {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "-> OK     CANCEL");  // arrow blinks on OK
         } else {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "          CANCEL");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
         }
       }
 
       if (canSelec) {
         if (blinker) {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK  -> CANCEL");  // arrow blinks on CANCEL
         } else {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK           ");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
         }
       }
     }
@@ -207,9 +211,11 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
     lcd_print(lcd_buf2);
 
     bpCounter = 0;
-    while ((okSelec || canSelec) && digitalRead(PIN_RSW) == LOW) {
+    while ((okSelec || canSelec) && isEnterButtonDown()) {
       wdt_reset();
+      rotaryFunc();
       //Serial3.println(bpCounter);
+      delay(5);
       bpCounter = bpCounter + 1;
       if (bpCounter >= BPCOUNTER) {
         if (okSelec) {
@@ -227,7 +233,7 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
           return 0;
         }
       }
-      rotPush = 1;
+      // rotPush = 1;  // REMOVED: was wrongly advancing okSelec→canSelec every hold iteration
     }
   }
 }
@@ -240,7 +246,7 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
   bool okSelec = 0;
   bool canSelec = 0;
   bool blinker = 0;
-  float tVal1 = 01.0;
+  float tVal1 = v1;  // pre-load caller's current value so editor opens at stored setting
   int bpCounter = 0;
   unsigned long lastmillis = millis();
   unsigned long selfDestruct = millis();
@@ -249,12 +255,16 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
   snprintf(lcd_buf2, sizeof(lcd_buf2), "                 ");
   while (1) {
     wdt_reset();
-    if (millis() - selfDestruct >= 300000) {
+    if (millis() - selfDestruct >= 30000) {
       mainMenuShow();
       return 0;
     }
 
     rotaryFunc();
+    if (takeMenuPress()) {
+      mainMenuShow();
+      return 0;
+    }
 
     // --- Increment / Decrement ---
     if (rotValPlus || rotValMinus) {
@@ -310,17 +320,17 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
       }
       if (okSelec) {
         if (blinker) {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "-> OK     CANCEL");  // arrow blinks on OK
         } else {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "          CANCEL");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
         }
       }
 
       if (canSelec) {
         if (blinker) {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK  -> CANCEL");  // arrow blinks on CANCEL
         } else {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK           ");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
         }
       }
     }
@@ -343,8 +353,9 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
     lcd_print(lcd_buf2);
 
     bpCounter = 0;
-    while ((okSelec || canSelec) && digitalRead(PIN_RSW) == LOW) {
+    while ((okSelec || canSelec) && isEnterButtonDown()) {
       wdt_reset();
+      rotaryFunc();
       //Serial3.println(bpCounter);
       delay(5);
       bpCounter = bpCounter + 1;
@@ -364,7 +375,7 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
           return 0;
         }
       }
-      rotPush = 1;
+      // rotPush = 1;  // REMOVED: was wrongly advancing okSelec→canSelec every hold iteration
     }
   }
 }
@@ -378,7 +389,7 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
   bool okSelec = 0;
   bool canSelec = 0;
   bool blinker = 0;
-  int tVal1 = 0;
+  int tVal1 = v1;  // pre-load caller's current value so editor opens at stored setting
   int bpCounter = 0;
   unsigned long lastmillis = millis();
   unsigned long selfDestruct = millis();
@@ -386,12 +397,16 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
   snprintf(lcd_buf2, sizeof(lcd_buf2), "                 ");
   while (1) {
     wdt_reset();
-    if (millis() - selfDestruct >= 300000) {
+    if (millis() - selfDestruct >= 30000) {
       mainMenuShow();
       return 0;
     }
 
     rotaryFunc();
+    if (takeMenuPress()) {
+      mainMenuShow();
+      return 0;
+    }
 
     // --- Increment / Decrement ---
     if (rotValPlus || rotValMinus) {
@@ -439,17 +454,17 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
       }
       if (okSelec) {
         if (blinker) {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "-> OK     CANCEL");  // arrow blinks on OK
         } else {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "          CANCEL");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
         }
       }
 
       if (canSelec) {
         if (blinker) {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK  -> CANCEL");  // arrow blinks on CANCEL
         } else {
-          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK           ");
+          snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
         }
       }
     }
@@ -467,8 +482,9 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
     lcd_print(lcd_buf2);
 
     bpCounter = 0;
-    while ((okSelec || canSelec) && digitalRead(PIN_RSW) == LOW) {
+    while ((okSelec || canSelec) && isEnterButtonDown()) {
       wdt_reset();
+      rotaryFunc();
       //Serial3.println(bpCounter);
       delay(5);
       bpCounter = bpCounter + 1;
@@ -487,36 +503,188 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
           return 0;
         }
       }
-      rotPush = 1;
+      // rotPush = 1;  // REMOVED: was wrongly advancing okSelec→canSelec every hold iteration
     }
   }
 }
 
 
+// Step-1 variant of get1ValFunc — used for relay latch (2–5 s, 1 s resolution)
+bool get1ValFuncS1(String ValName, uint8_t &v1, char x, int xT, int yT) {
+  menuUiFunc = 0;
+  bool v1Selec = 1;
+  bool okSelec = 0;
+  bool canSelec = 0;
+  bool blinker = 0;
+  int tVal1 = (int)v1;
+  int bpCounter = 0;
+  unsigned long lastmillis = millis();
+  unsigned long selfDestruct = millis();
+  snprintf(lcd_buf1, sizeof(lcd_buf1), "                 ");
+  snprintf(lcd_buf2, sizeof(lcd_buf2), "                 ");
+  while (1) {
+    wdt_reset();
+    if (millis() - selfDestruct >= 30000) {
+      mainMenuShow();
+      return 0;
+    }
+    rotaryFunc();
+    if (takeMenuPress()) {
+      mainMenuShow();
+      return 0;
+    }
+    if (rotValPlus || rotValMinus) {
+      int delta = (rotValMinus ? 1 : -1);
+      if (v1Selec) {
+        tVal1 = tVal1 + delta;
+        if (tVal1 < xT) tVal1 = yT;
+        if (tVal1 > yT) tVal1 = xT;
+      }
+      rotValPlus = rotValMinus = 0;
+    }
+    if (rotPush) {
+      if (v1Selec) { v1Selec = 0; okSelec = 1; canSelec = 0; }
+      else if (okSelec) { v1Selec = 0; okSelec = 0; canSelec = 1; }
+      else if (canSelec) { v1Selec = 1; okSelec = 0; canSelec = 0; }
+      rotPush = 0;
+    }
+    if (millis() - lastmillis > 300) {
+      blinker = !blinker;
+      lastmillis = millis();
+      if (v1Selec) {
+        if (blinker) snprintf(lcd_buf1, sizeof(lcd_buf1), "%s:       %c ", ValName.c_str(), x);
+        else         snprintf(lcd_buf1, sizeof(lcd_buf1), "%s:  %02d  %c ", ValName.c_str(), tVal1, x);
+      }
+      if (okSelec) {
+        snprintf(lcd_buf2, sizeof(lcd_buf2), blinker ? "-> OK     CANCEL" : "   OK     CANCEL");
+      }
+      if (canSelec) {
+        snprintf(lcd_buf2, sizeof(lcd_buf2), blinker ? "   OK  -> CANCEL" : "   OK     CANCEL");
+      }
+    }
+    if (!v1Selec) snprintf(lcd_buf1, sizeof(lcd_buf1), "%s:  %02d  %c ", ValName.c_str(), tVal1, x);
+    if (!okSelec && !canSelec) snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
+    lcd_set_cursor(0, 0); lcd_print(lcd_buf1);
+    lcd_set_cursor(1, 0); lcd_print(lcd_buf2);
+    bpCounter = 0;
+    while ((okSelec || canSelec) && isEnterButtonDown()) {
+      wdt_reset(); rotaryFunc(); delay(5);
+      bpCounter++;
+      if (bpCounter >= BPCOUNTER) {
+        if (okSelec) {
+          lcd_set_cursor(1, 0); lcd_print("   Applying...  ");
+          v1 = (uint8_t)tVal1;
+          mainMenuShow(); return 1;
+        }
+        if (canSelec) {
+          lcd_set_cursor(1, 0); lcd_print(" X  Aborting  X ");
+          mainMenuShow(); return 0;
+        }
+      }
+    }
+  }
+}
+
+static int maxMlvl2OffsetForGroup(int groupBase) {
+  if (groupBase == 1000) return 700;   // MODES:        1100..1700
+  if (groupBase == 2000) return 600;   // PRESET:       2100..2600
+  if (groupBase == 3000) return 900;   // SETTINGS:     3100..3900
+  if (groupBase == 4000) return 100;   // CONTACT:      4100
+  if (groupBase == 5000) return 100;   // ABOUT DEVICE: 5100
+  if (groupBase == 6000) return 100;   // [HOME]:       6100
+  return 100;
+}
+
+static int maxMlvl3OffsetForHundreds(int hundredsBase) {
+  return 10;  // all branches: single leaf at x10
+}
+
+static int maxMlvl4OffsetForTens(int tensBase) {
+  return 0;   // mlvl4 not used in current structure
+}
+
 
 
 void menuUi() {
+  static unsigned long menuLastInput = 0;
+
+  if (!menuUiFunc) {
+    menuLastInput = 0;
+    return;
+  }
 
   if (menuUiFunc) {
+    rotaryFunc();
+    unsigned long now = millis();
+
+    if (menuLastInput == 0) {
+      menuLastInput = now;
+    }
+    if (rotValPlus || rotValMinus || rotPush || btnMenuPress || btnModePress) {
+      menuLastInput = now;
+    }
+    if ((now - menuLastInput) >= 30000UL) {
+      menuUiFunc = 0;
+      clearNavEvents();
+      menuLastInput = 0;
+      return;
+    }
+
+    // MODE key is reserved for home hotkey behavior.
+    takeModePress();
+
+    if (takeMenuPress()) {
+      if (mlvl4) {
+        mlvl4 = 0;
+        mlvl3 = 1;
+        menuPos = (menuPos / 10) * 10;
+      } else if (mlvl3) {
+        mlvl3 = 0;
+        mlvl2 = 1;
+        menuPos = (menuPos / 100) * 100;
+      } else if (mlvl2) {
+        mlvl2 = 0;
+        mlvl1 = 1;
+        menuPos = (menuPos / 1000) * 1000;
+      } else {
+        menuUiFunc = 0;
+        return;
+      }
+    }
+
     if (mlvl1) {
-      if (menuPos < 999 || menuPos > 4000) {
+      if (menuPos < 999 || menuPos > 6000) {
         menuPos = 1000;
         Serial3.print("after condition 1 - ");
         Serial3.println(menuPos);
       }
     }
     if (mlvl2) {
-      if (menuPos % 1000 <= 0 || menuPos % 1000 > 600) {
-        menuPos = (menuPos / 1000) * 1000 + 100;
+      int base = (menuPos / 1000) * 1000;
+      int offset = menuPos % 1000;
+      int maxOffset = maxMlvl2OffsetForGroup(base);
+      if (offset <= 0 || offset > maxOffset || (offset % 100) != 0) {
+        menuPos = base + 100;
         Serial3.print("after condition 2 - ");
         Serial3.println(menuPos);
       }
     }
     if (mlvl3) {
-      if (menuPos % 100 < 0 || menuPos % 100 > 70) {
-        menuPos = (menuPos / 100) * 100 + 10;
+      int base = (menuPos / 100) * 100;
+      int offset = menuPos % 100;
+      int maxOffset = maxMlvl3OffsetForHundreds(base);
+      if (offset <= 0 || offset > maxOffset || (offset % 10) != 0) {
+        menuPos = base + 10;
         Serial3.print("after condition 3 - ");
         Serial3.println(menuPos);
+      }
+    }
+    if (mlvl4) {
+      int base = (menuPos / 10) * 10;
+      int offset = menuPos % 10;
+      int maxOffset = maxMlvl4OffsetForTens(base);
+      if (offset < 0 || offset > maxOffset) {
+        menuPos = base;
       }
     }
 
@@ -535,12 +703,10 @@ void menuUi() {
     switch (menuPos) {
       case 1000:
         lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
-        lcd_print(" -> MODE        ");
+        lcd_print(" -> MODES       ");
         lcd_set_cursor(1, 0);
         lcd_print("    PRESET      ");
         break;
-      case 1700:
       case 1100:
         lcd_set_cursor(0, 0);
         //d_print("1234567890123456");
@@ -557,6 +723,7 @@ void menuUi() {
         wdt_reset();
         delay(3000);
         storage.modeM1 = 0;
+       markLocalModeChange();
         Serial3.print("menu mode normal: ");
         Serial3.println(storage.modeM1);
         savecon();
@@ -575,8 +742,8 @@ void menuUi() {
         break;
 
       case 1210:
-        var1 = 0;
-        var2 = 0;
+        var1 = String(storage.autoM1).substring(1, 3).toInt();
+        var2 = String(storage.autoM1).substring(3, 5).toInt();
         if (get2ValFunc("OnDelay", var1, var2, 'm', 59, 's', 59)) {
           Serial3.println("applied");
           Serial3.println(var1);
@@ -585,6 +752,7 @@ void menuUi() {
           /////////////////////////////////////////////////////////////////
           /////////////////////////////////////////////////////////////////
           storage.modeM1 = 1;
+          markLocalModeChange();
           // format into val with leading zeros, always 2 digits
           snprintf(tmpVal, sizeof(tmpVal), "z%02d%02d", var1, var2);
           strncpy(storage.autoM1, tmpVal, sizeof(storage.autoM1) - 1);
@@ -596,7 +764,15 @@ void menuUi() {
           iotSerial.println("<{\"TS\":{\"n\":\"2\"}}>");
           Serial3.println("<{\"AT\":{\"a1auDly\":\"" + String(storage.autoM1) + "\"}}>");
           savecon();
-          loadModeVal();
+          // Stop motor FIRST so the OFF-relay pulse starts before the countdown
+          // timer is stamped — mirrors the fix in toggleNormalAutoMode().
+          if (m1StaVars) {
+            m1Off();
+          }
+          loadModeVal();                // reloads all mode vars from storage
+          autoM1Trigd = 0;
+          autoM1BuffMillis = millis();  // re-stamp AFTER m1Off() so delay is accurate
+          atLastTrigdMillis = 0;
           uiFunc(1);
           menuUiFunc = 0;
           lcd_modeShow();
@@ -618,27 +794,31 @@ void menuUi() {
         lcd_print("   SET COUNTDOWN");
         break;
       case 1310:
-        var1 = 0;
-        var2 = 0;
+        var1 = String(storage.cyclicM1).substring(1, 3).toInt();
+        var2 = String(storage.cyclicM1).substring(3, 5).toInt();
         if (get2ValFunc(" On Dur", var1, var2, 'h', 23, 'm', 59)) {
           Serial3.println("applied");
           Serial3.println(var1);
           Serial3.println(var2);
           /////////////////////////////////////////////////////////////////
           /////////////////////////////////////////////////////////////////
-          storage.modeM1 = 2;
-          // format into val with leading zeros, always 2 digits
+          // Build the ON-duration portion of the setting string but do NOT
+          // commit storage.modeM1 yet — the user must also confirm the OFF
+          // duration before the mode change takes effect.
           snprintf(tmpVal, sizeof(tmpVal), "z%02d%02d", var1, var2);
           Serial3.println(tmpVal);
           delay(2000);
           /////////////////////////////////////////////////////////////////
           /////////////////////////////////////////////////////////////////
-
+          var1 = String(storage.cyclicM1).substring(5, 7).toInt();
+          var2 = String(storage.cyclicM1).substring(7, 9).toInt();
           if (get2ValFunc("Off Dur", var1, var2, 'h', 23, 'm', 59)) {
             Serial3.println("applied");
             /////////////////////////////////////////////////////////////////
             /////////////////////////////////////////////////////////////////
-
+            // Both durations confirmed — now commit mode and settings.
+            storage.modeM1 = 2;
+            markLocalModeChange();
             snprintf(&tmpVal[5], sizeof(tmpVal) - 5, "%02d%02d", var1, var2);
             Serial3.println(tmpVal);
             strncpy(storage.cyclicM1, tmpVal, sizeof(storage.cyclicM1) - 1);
@@ -671,12 +851,15 @@ void menuUi() {
         break;
 
       case 1410:
+        var1 = String(storage.countM1).substring(1, 3).toInt();
+        var2 = String(storage.countM1).substring(3, 5).toInt();
         if (get2ValFunc("CounTmr", var1, var2, 'h', 23, 'm', 59)) {
           Serial3.println("applied");
           Serial3.println(var1);
           Serial3.println(var2);
           storage.modeM1 = 3;
-          //////////////////////////////
+         markLocalModeChange();
+         //////////////////////////////
           /////////////////////////////
           // format into val with leading zeros, always 2 digits
           snprintf(tmpVal, sizeof(tmpVal), "z%02d%02d", var1, var2);
@@ -695,72 +878,86 @@ void menuUi() {
           lcd_modeShow();
         } else {
           Serial3.println("failed");
+          mainMenuShow();  // return to main menu when countdown hotkey is cancelled
         }
         break;
-      case 1510:
-        var1 = 0;
-        var2 = 0;
-        if (get2ValFunc("OnDelay", var1, var2, 'm', 59, 's', 59)) {
-          Serial3.println("applied");
-          Serial3.println(var1);
-          Serial3.println(var2);
+      case 1500:
+        lcd_set_cursor(0, 0);
+        lcd_print("-> SET SCHEDULE ");
+        lcd_set_cursor(1, 0);
+        lcd_print("   SET LAST REM ");
+        break;
 
-          /////////////////////////////////////////////////////////////////
-          /////////////////////////////////////////////////////////////////
+      case 1510:
+        // Schedule mode: show info message, set mode=4, save, exit
+        lcd_set_cursor(0, 0);
+        lcd_print("To set schedule,");
+        lcd_set_cursor(1, 0);
+        lcd_print("please use app. ");
+        storage.modeM1 = 4;
+       markLocalModeChange();
+        savecon();
+        loadModeVal();
+        iotSerial.println("<{\"TS\":{\"n\":\"6\"}}>");
+        wdt_reset();
+        delay(3000);
+        uiFunc(1);
+        menuUiFunc = 0;
+        lcd_modeShow();
+        break;
+
+      case 1600:
+        lcd_set_cursor(0, 0);
+        lcd_print("   SET SCHEDULE ");
+        lcd_set_cursor(1, 0);
+        lcd_print("-> SET LAST REM ");
+        break;
+
+      case 1610:
+        var1 = String(storage.lasRemM1).substring(1, 3).toInt();
+        var2 = String(storage.lasRemM1).substring(3, 5).toInt();
+        if (get2ValFunc("OnDelay", var1, var2, 'm', 59, 's', 59)) {
+          Serial3.println("lastrem applied");
           storage.modeM1 = 5;
-          // format into val with leading zeros, always 2 digits
+         markLocalModeChange();
           snprintf(tmpVal, sizeof(tmpVal), "z%02d%02d", var1, var2);
           strncpy(storage.lasRemM1, tmpVal, sizeof(storage.lasRemM1) - 1);
-          storage.lasRemM1[sizeof(storage.lasRemM1) - 1] = '\0';  // ensure null-termination
+          storage.lasRemM1[sizeof(storage.lasRemM1) - 1] = '\0';
           Serial3.print("lasRemM1: ");
           Serial3.println(storage.lasRemM1);
           iotSerial.println("<{\"AT\":{\"a1asRem\":\"" + String(storage.lasRemM1) + "\"}}>");
           delay(500);
           iotSerial.println("<{\"TS\":{\"n\":\"5\"}}>");
-          Serial3.println("<{\"AT\":{\"a1lasRem\":\"" + String(storage.lasRemM1) + "\"}}>");
           savecon();
           loadModeVal();
           uiFunc(1);
           menuUiFunc = 0;
           lcd_modeShow();
-          /////////////////////////////////////////////////////////////////
-          /////////////////////////////////////////////////////////////////
-
         } else {
-          Serial3.println("failed");
-          Serial3.println(var1);
-          Serial3.println(var2);
+          Serial3.println("lastrem failed");
         }
-      
         break;
 
-
-      case 1500:
+      case 1700:
         lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
-        lcd_print("-> SET LAST REM ");
-        lcd_set_cursor(1, 0);
-        lcd_print("   [ BACK ]     ");
-        //lcd_print("                ");
-        break;
-      case 1600:
-        lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
         lcd_print("   SET LAST REM ");
         lcd_set_cursor(1, 0);
         lcd_print("-> [ BACK ]     ");
-        //lcd_print("                ");
+        break;
+
+      case 1710:
+        menuUiFunc = 0;
+        uiFunc(0);
+        return;
         break;
 
       case 2000:
         lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
-        lcd_print("    MODE        ");
+        lcd_print("    MODES       ");
         lcd_set_cursor(1, 0);
         lcd_print(" -> PRESET      ");
         break;
 
-      case 2600:
       case 2100:
         lcd_set_cursor(0, 0);
         //d_print("1234567890123456");
@@ -769,15 +966,17 @@ void menuUi() {
         lcd_print("  SET OVRLOAD Ah");
         break;
       case 2110:
-        get1VaFloatFun("DryRun ", var3, 'A', 1.0, 30.0);
-        storage.dryRunM1 = var3;
-        savecon();
-        iotSerial.println("<{\"AT\":{\"a1dry\":\"z" + String(storage.dryRunM1) + "\"}}>");
-        Serial3.println("<{\"AT\":{\"a1dry\":\"z" + String(storage.dryRunM1) + "\"}}>");
-        loadModeVal();
-        uiFunc(1);
-        menuUiFunc = 0;
-        lcd_modeShow();
+        var3 = storage.dryRunM1;  // pre-load current stored value
+        if (get1VaFloatFun("DryRun ", var3, 'A', 2.0, 15.0)) {
+          storage.dryRunM1 = var3;
+          savecon();
+          iotSerial.println("<{\"AT\":{\"a1dry\":\"z" + String(storage.dryRunM1) + "\"}}>");
+          Serial3.println("<{\"AT\":{\"a1dry\":\"z" + String(storage.dryRunM1) + "\"}}>");
+          loadModeVal();
+          uiFunc(1);
+          menuUiFunc = 0;
+          lcd_modeShow();
+        }
         break;
 
       case 2200:
@@ -788,15 +987,17 @@ void menuUi() {
         lcd_print("->SET OVRLOAD Ah");
         break;
       case 2210:
-        get1VaFloatFun("OverRun", var3, 'A', 1.0, 30.0);
-        storage.ovLRunM1 = var3;
-        iotSerial.println("<{\"AT\":{\"a1ovl\":\"z" + String(storage.ovLRunM1) + "\"}}>");
-        Serial3.println("<{\"AT\":{\"a1ovl\":\"z" + String(storage.ovLRunM1) + "\"}}>");
-        savecon();
-        loadModeVal();
-        uiFunc(1);
-        menuUiFunc = 0;
-        lcd_modeShow();
+        var3 = storage.ovLRunM1;  // pre-load current stored value
+        if (get1VaFloatFun("OverRun", var3, 'A', 5.0, 25.0)) {
+          storage.ovLRunM1 = var3;
+          iotSerial.println("<{\"AT\":{\"a1ovl\":\"z" + String(storage.ovLRunM1) + "\"}}>");
+          Serial3.println("<{\"AT\":{\"a1ovl\":\"z" + String(storage.ovLRunM1) + "\"}}>");
+          savecon();
+          loadModeVal();
+          uiFunc(1);
+          menuUiFunc = 0;
+          lcd_modeShow();
+        }
         break;
       case 2300:
         lcd_set_cursor(0, 0);
@@ -806,15 +1007,17 @@ void menuUi() {
         lcd_print("  SET Over  Volt");
         break;
       case 2310:
-        get1ValFunc("UnderVol", var1, 'V', 330, 400);
-        storage.undVol = var1;
-        iotSerial.println("<{\"AT\":{\"lvTh\":\"z" + String(storage.undVol) + "\"}}>");
-        Serial3.println("<{\"AT\":{\"lvTh\":\"z" + String(storage.undVol) + "\"}}>");
-        savecon();
-        loadModeVal();
-        uiFunc(1);
-        menuUiFunc = 0;
-        lcd_modeShow();
+        var1 = (int)storage.undVol;  // pre-load current stored value
+        if (get1ValFunc("UnderVol", var1, 'V', 280, 350)) {
+          storage.undVol = var1;
+          iotSerial.println("<{\"AT\":{\"lvTh\":\"z" + String(storage.undVol) + "\"}}>");
+          Serial3.println("<{\"AT\":{\"lvTh\":\"z" + String(storage.undVol) + "\"}}>");
+          savecon();
+          loadModeVal();
+          uiFunc(1);
+          menuUiFunc = 0;
+          lcd_modeShow();
+        }
         break;
       case 2400:
         lcd_set_cursor(0, 0);
@@ -824,78 +1027,443 @@ void menuUi() {
         lcd_print("->SET Over  Volt");
         break;
       case 2410:
-        get1ValFunc("OverVol", var1, 'V', 420, 480);
-        storage.ovrVol = var1;
-        iotSerial.println("<{\"AT\":{\"hvTh\":\"z" + String(storage.ovrVol) + "\"}}>");
-        Serial3.println("<{\"AT\":{\"hvTh\":\"z" + String(storage.ovrVol) + "\"}}>");
-        savecon();
-        loadModeVal();
-        uiFunc(1);
-        menuUiFunc = 0;
-        lcd_modeShow();
+        var1 = (int)storage.ovrVol;  // pre-load current stored value
+        if (get1ValFunc("OverVol", var1, 'V', 400, 500)) {
+          storage.ovrVol = var1;
+          iotSerial.println("<{\"AT\":{\"hvTh\":\"z" + String(storage.ovrVol) + "\"}}>");
+          Serial3.println("<{\"AT\":{\"hvTh\":\"z" + String(storage.ovrVol) + "\"}}>");
+          savecon();
+          loadModeVal();
+          uiFunc(1);
+          menuUiFunc = 0;
+          lcd_modeShow();
+        }
         break;
       case 2500:
         lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
-        lcd_print(" -> [ BACK ]    ");
+        lcd_print("-> SENSE TIME   ");
         lcd_set_cursor(1, 0);
-        lcd_print("                ");
+        lcd_print("   [ BACK ]     ");
+        break;
+      case 2510: {
+          var1 = (int)storage.senseTime;
+          if (get1ValFunc("SensTim", var1, 's', 10, 120)) {
+            storage.senseTime = (uint16_t)var1;
+            savecon();
+            uiFunc(1);
+            menuUiFunc = 0;
+            lcd_modeShow();
+          }
+          break;
+        }
+      case 2600:
+        lcd_set_cursor(0, 0);
+        lcd_print("   SENSE TIME   ");
+        lcd_set_cursor(1, 0);
+        lcd_print("-> [ BACK ]     ");
+        break;
+      case 2610:
+        menuUiFunc = 0;
+        uiFunc(0);
+        return;
         break;
 
 
       case 3000:
         lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
         lcd_print(" -> SETTINGS    ");
         lcd_set_cursor(1, 0);
-        lcd_print("    [ HOME ]    ");
-        break;
-      case 3300:
-        mlvl2 = 1;
-        menuPos = 3100;
-      case 3100:
-        lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
-        lcd_print("->RESET DEVICE");
-        lcd_set_cursor(1, 0);
-        lcd_print("   [ BACK ]     ");
-        break;
-      case 3200:
-        lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
-        lcd_print("  RESET DEVICE");
-        lcd_set_cursor(1, 0);
-        lcd_print("-> [ BACK ]     ");
-        break;
-
-      case 3110:
-        lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
-        lcd_print("  RESETTING...  ");
-        lcd_set_cursor(1, 0);
-        lcd_print("                ");
-        delay(3000);
-        storage.modeM1 = 0;
-        Serial3.print("Reset ");
-        Serial3.println(storage.modeM1);
-        loadModeVal();
-        uiFunc(1);
-        menuUiFunc = 0;
-        lcd_modeShow();
+        lcd_print("    CONTACT     ");
         break;
 
       case 4000:
         lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
         lcd_print("    SETTINGS    ");
         lcd_set_cursor(1, 0);
-        lcd_print(" -> [ HOME ]    ");
+        lcd_print(" -> CONTACT     ");
         break;
-      case 4100:
+
+      case 5000:
+        lcd_set_cursor(0, 0);
+        lcd_print(" -> ABOUT DVC   ");
+        lcd_set_cursor(1, 0);
+        lcd_print("    [ HOME ]    ");
+        break;
+
+      // ── SETTINGS mlvl2 rows ────────────────────────────────
+      case 3100:
+        lcd_set_cursor(0, 0);
+        lcd_print("-> DATE & TIME  ");
+        lcd_set_cursor(1, 0);
+        lcd_print("   CONFIGURE DEV");
+        break;
+      case 3200:
+        lcd_set_cursor(0, 0);
+        lcd_print("   DATE & TIME  ");
+        lcd_set_cursor(1, 0);
+        lcd_print("-> CONFIGURE DEV");
+        break;
+      case 3300:
+        lcd_set_cursor(0, 0);
+        lcd_print("-> RESET WIFI   ");
+        lcd_set_cursor(1, 0);
+        lcd_print("   ON RELAY LAT ");
+        break;
+      case 3400:
+        lcd_set_cursor(0, 0);
+        lcd_print("   RESET WIFI   ");
+        lcd_set_cursor(1, 0);
+        lcd_print("-> ON RELAY LAT ");
+        break;
+      case 3500:
+        lcd_set_cursor(0, 0);
+        lcd_print("-> OFF RELAY LAT");
+        lcd_set_cursor(1, 0);
+        lcd_print("   AI MODE      ");
+        break;
+      case 3600:
+        lcd_set_cursor(0, 0);
+        lcd_print("   OFF RELAY LAT");
+        lcd_set_cursor(1, 0);
+        lcd_print("-> AI MODE      ");
+        break;
+      case 3700:
+        lcd_set_cursor(0, 0);
+        lcd_print("-> FACTORY RESET");
+        lcd_set_cursor(1, 0);
+        lcd_print("   RESET DEVICE ");
+        break;
+      case 3800:
+        lcd_set_cursor(0, 0);
+        lcd_print("   FACTORY RESET");
+        lcd_set_cursor(1, 0);
+        lcd_print("-> RESET DEVICE ");
+        break;
+      case 3900:
+        lcd_set_cursor(0, 0);
+        lcd_print("-> [ BACK ]     ");
+        lcd_set_cursor(1, 0);
+        lcd_print("                ");
+        break;
+
+      // ── SETTINGS mlvl3: DATE & TIME leaf ──────────────────
+      case 3110: {
+          int rtcHH = (int)tHrs, rtcMM = (int)tMin;
+          if (!get2ValFunc(" Time ", rtcHH, rtcMM, 'h', 23, 'm', 59)) break;
+          int rtcSS = (int)tSec;
+          if (!get1ValFunc("  Secs", rtcSS, 's', 0, 59)) break;
+          int rtcDD = (int)tDate, rtcMON = (int)tMonth;
+          if (!get2ValFunc(" Date ", rtcDD, rtcMON, 'd', 31, 'm', 12)) break;
+          int rtcYY = (int)tYear;
+          if (!get1ValFunc("  Year", rtcYY, 'y', 0, 99)) break;
+          ds3231_SetDateTime(rtcYY, rtcMON, rtcDD, rtcHH, rtcMM, rtcSS, 1);
+          rtcFetchTimeFunc();
+          lcd_set_cursor(0, 0);
+          lcd_print("  RTC Updated!  ");
+          lcd_set_cursor(1, 0);
+          lcd_print("                ");
+          wdt_reset();
+          delay(2000);
+          uiFunc(1);
+          menuUiFunc = 0;
+          break;
+        }
+
+      // ── SETTINGS mlvl3: CONFIGURE DEVICE sub-menu ─────────
+      case 3210: {
+          // 4-item scrolling sub-menu under "CONFIGURE DEV"
+          static const char* const cfgLabels[4] = {
+            "-> PAIR REMOTE  ",
+            "-> PAIR GATEWAY ",
+            "-> CONFIGURE    ",
+            "-> [BACK]       "
+          };
+          uint8_t cfgSel       = 0;
+          const uint8_t CFG_N  = 4;
+          unsigned long cfgTo  = millis();
+
+          while (1) {
+            wdt_reset();
+            rotaryFunc();
+
+            if (millis() - cfgTo >= 30000UL)  { mainMenuShow(); break; }
+            if (takeMenuPress())               { mainMenuShow(); break; }
+
+            if (rotValPlus)  { cfgSel = (cfgSel + 1) % CFG_N; rotValPlus  = 0; cfgTo = millis(); }
+            if (rotValMinus) { cfgSel = (cfgSel == 0 ? CFG_N - 1 : cfgSel - 1); rotValMinus = 0; cfgTo = millis(); }
+
+            lcd_set_cursor(0, 0); lcd_print("CONFIGURE DEV   ");
+            lcd_set_cursor(1, 0); lcd_print(cfgLabels[cfgSel]);
+
+            if (!isEnterButtonDown()) { delay(10); continue; }
+            // Debounce: hold 500 ms
+            { unsigned long _ps = millis(); while (millis() - _ps < 500UL) { wdt_reset(); delay(5); } }
+            if (!isEnterButtonDown()) continue;
+
+            // ── PAIR REMOTE ──────────────────────────────────────────
+            if (cfgSel == 0) {
+              storage.remote[0] = '\0';
+              storage.rf_locked  = 1;
+              savecon();
+              enterRemPairMode();  // LCD → "REM PAIRING... scanning..."
+              {
+                unsigned long pairStart = millis();
+                while (pairRemState != PAIR_REM_IDLE) {
+                  wdt_reset();
+                  sx1268Func();
+                  pairRemoteTick();
+                  if (takeMenuPress()) {
+                    switchToOperationalChannel();
+                    pairRemState = PAIR_REM_IDLE;
+                    break;
+                  }
+                  if (millis() - pairStart >= 90000UL) {
+                    switchToOperationalChannel();
+                    pairRemState = PAIR_REM_IDLE;
+                    break;
+                  }
+                  delay(5);
+                }
+              }
+              wdt_reset(); delay(2000);
+              mainMenuShow(); break;
+
+            // ── PAIR GATEWAY (independent — remote unaffected) ───────
+            } else if (cfgSel == 1) {
+              storage.gateway[0] = '\0';   // clear gateway only; remote stays intact
+              storage.rf_locked  = 0;
+              savecon();
+              enterPairNodeMode();  // LCD → "GW  PAIRING... beaconing..."
+              {
+                unsigned long pairStart = millis();
+                bool cancelled = false;
+                while (pairNodeState != PAIR_NODE_IDLE) {
+                  wdt_reset();
+                  sx1268Func();
+                  pairNodeTick();
+                  if (takeMenuPress())                  { cancelled = true; break; }
+                  if (millis() - pairStart >= 90000UL) { cancelled = true; break; }
+                  delay(5);
+                }
+                if (cancelled) {
+                  switchToOperationalChannel();
+                  pairNodeState = PAIR_NODE_IDLE;
+                  wdt_reset(); delay(1000);
+                  mainMenuShow(); break;
+                }
+              }
+              wdt_reset(); delay(2000);
+              mainMenuShow(); break;
+
+            // ── CONFIGURE (send CP serial command) ───────────────────
+            } else if (cfgSel == 2) {
+              lcd_set_cursor(0, 0); lcd_print(" Configuring... ");
+              lcd_set_cursor(1, 0); lcd_print("  Please wait   ");
+              iotSerial.println("<{\"TS\":{\"n\":\"CP\"}}>");
+              Serial3.println("[MENU] Configure Device sent");
+              wdt_reset(); delay(3000);
+              mainMenuShow(); break;
+
+            // ── [BACK] ───────────────────────────────────────────────
+            } else {
+              mainMenuShow(); break;
+            }
+          }
+          break;
+        }
+
+      // ── SETTINGS mlvl3: RESET WIFI confirmation ───────────
+      case 3310: {
+          bool wfYes = false;
+          bool wfBlink = false;
+          unsigned long wfLast = millis();
+          unsigned long wfTimeout = millis();
+          lcd_set_cursor(0, 0);
+          lcd_print("  Reset WiFi?   ");
+          while (1) {
+            wdt_reset();
+            rotaryFunc();
+            if (millis() - wfTimeout >= 30000UL) { mainMenuShow(); break; }
+            if (takeMenuPress()) { mainMenuShow(); break; }
+            if (rotValPlus || rotValMinus) { wfYes = !wfYes; rotValPlus = rotValMinus = 0; }
+            if (millis() - wfLast >= 400) { wfBlink = !wfBlink; wfLast = millis(); }
+            lcd_set_cursor(1, 0);
+            lcd_print(wfYes ? (wfBlink ? "< NO  -> YES >  " : "< NO     YES >  ")
+                             : (wfBlink ? "< NO <-  YES >  " : "< NO     YES >  "));
+            if (isEnterButtonDown()) {
+              { unsigned long _ps = millis(); while (millis() - _ps < 600) { wdt_reset(); rotaryFunc(); delay(5); } }
+              if (isEnterButtonDown()) {
+                if (wfYes) {
+                  lcd_set_cursor(0, 0); lcd_print("  WiFi Reset!   ");
+                  lcd_set_cursor(1, 0); lcd_print("                ");
+                  iotSerial.println("<{\"TS\":{\"n\":\"RW\"}}>");
+                  Serial3.println("[MENU] WiFi Reset sent");
+                  wdt_reset(); delay(2000);
+                }
+                mainMenuShow(); break;
+              }
+            }
+          }
+          break;
+        }
+
+      // ── SETTINGS mlvl3: ON RELAY LATCH editor ─────────────
+      case 3410:
+        if (get1ValFuncS1("ON Lat ", storage.onRelay, 's', 2, 5)) {
+          savecon();
+          uiFunc(1);
+          menuUiFunc = 0;
+          lcd_modeShow();
+        }
+        break;
+
+      // ── SETTINGS mlvl3: OFF RELAY LATCH editor ────────────
+      case 3510:
+        if (get1ValFuncS1("OFF Lat", storage.offRelay, 's', 2, 5)) {
+          savecon();
+          uiFunc(1);
+          menuUiFunc = 0;
+          lcd_modeShow();
+        }
+        break;
+
+      // ── SETTINGS mlvl3: AI MODE leaf ──────────────────────
+      case 3610:
+        lcd_set_cursor(0, 0);
+        lcd_print("  AI Calibrate  ");
+        lcd_set_cursor(1, 0);
+        lcd_print(" Use Mobile App ");
+        wdt_reset();
+        delay(3000);
+        mainMenuShow();
+        break;
+
+      // ── SETTINGS mlvl3: FACTORY RESET confirmation ────────
+      case 3710: {
+          bool frYes = false;
+          bool frBlink = false;
+          unsigned long frLast = millis();
+          unsigned long frTimeout = millis();
+          lcd_set_cursor(0, 0);
+          lcd_print(" Factory Reset? ");
+          while (1) {
+            wdt_reset();
+            rotaryFunc();
+            if (millis() - frTimeout >= 30000UL) { mainMenuShow(); break; }
+            if (takeMenuPress()) { mainMenuShow(); break; }
+            if (rotValPlus || rotValMinus) { frYes = !frYes; rotValPlus = rotValMinus = 0; }
+            if (millis() - frLast >= 400) { frBlink = !frBlink; frLast = millis(); }
+            lcd_set_cursor(1, 0);
+            lcd_print(frYes ? (frBlink ? "< NO  -> YES >  " : "< NO     YES >  ")
+                             : (frBlink ? "< NO <-  YES >  " : "< NO     YES >  "));
+            if (isEnterButtonDown()) {
+              { unsigned long _ps = millis(); while (millis() - _ps < 600) { wdt_reset(); rotaryFunc(); delay(5); } }
+              if (isEnterButtonDown()) {
+                if (frYes) {
+                  lcd_set_cursor(0, 0); lcd_print("  Resetting...  ");
+                  lcd_set_cursor(1, 0); lcd_print("                ");
+                  wdt_reset(); delay(1000);
+                  con_default(); loadcon(); loadModeVal();
+                  menuUiFunc = 0;
+                  wdt_reset(); delay(5000);  // WDT reboots
+                } else { mainMenuShow(); }
+                break;
+              }
+            }
+          }
+          break;
+        }
+
+      // ── SETTINGS mlvl3: RESET DEVICE confirmation ─────────
+      case 3810: {
+          bool rdYes = false;
+          bool rdBlink = false;
+          unsigned long rdLast = millis();
+          unsigned long rdTimeout = millis();
+          lcd_set_cursor(0, 0);
+          lcd_print(" Reset Device?  ");
+          while (1) {
+            wdt_reset();
+            rotaryFunc();
+            if (millis() - rdTimeout >= 30000UL) { mainMenuShow(); break; }
+            if (takeMenuPress()) { mainMenuShow(); break; }
+            if (rotValPlus || rotValMinus) { rdYes = !rdYes; rotValPlus = rotValMinus = 0; }
+            if (millis() - rdLast >= 400) { rdBlink = !rdBlink; rdLast = millis(); }
+            lcd_set_cursor(1, 0);
+            lcd_print(rdYes ? (rdBlink ? "< NO  -> YES >  " : "< NO     YES >  ")
+                             : (rdBlink ? "< NO <-  YES >  " : "< NO     YES >  "));
+            if (isEnterButtonDown()) {
+              { unsigned long _ps = millis(); while (millis() - _ps < 600) { wdt_reset(); rotaryFunc(); delay(5); } }
+              if (isEnterButtonDown()) {
+                if (rdYes) {
+                  lcd_set_cursor(0, 0); lcd_print("  RESETTING...  ");
+                  lcd_set_cursor(1, 0); lcd_print("                ");
+                  storage.modeM1 = 0;
+                  markLocalModeChange();
+                  Serial3.println("[MENU] Reset Device");
+                  savecon(); loadModeVal();
+                  wdt_reset(); delay(2000);
+                  uiFunc(1); menuUiFunc = 0; lcd_modeShow();
+                } else { mainMenuShow(); }
+                break;
+              }
+            }
+          }
+          break;
+        }
+
+      // ── SETTINGS mlvl3: [BACK] leaf ───────────────────────
+      case 3910:
         menuUiFunc = 0;
         uiFunc(0);
         return;
         break;
+
+      case 6000:
+        lcd_set_cursor(0, 0);
+        lcd_print("    ABOUT DVC   ");
+        lcd_set_cursor(1, 0);
+        lcd_print(" -> [ HOME ]    ");
+        break;
+      case 6100:
+        menuUiFunc = 0;
+        uiFunc(0);
+        return;
+        break;
+
+      // ── CONTACT main menu group ────────────────────────────
+      case 4100:
+        lcd_set_cursor(0, 0);
+        lcd_print("Contact:        ");
+        lcd_set_cursor(1, 0);
+        lcd_print("+91 99626 78788 ");
+        // Stays on screen; MENU/ESC handled by back-press logic above
+        break;
+      case 4110:
+        // ENTER from CONTACT screen → return to main menu
+        mainMenuShow();
+        break;
+
+      // ── ABOUT DEVICE main menu group ──────────────────────
+      case 5100:
+        lcd_set_cursor(0, 0);
+        lcd_print("-> SHOW INFO    ");
+        lcd_set_cursor(1, 0);
+        lcd_print("                ");
+        break;
+      case 5110: {
+          char fw_buf[17];
+          lcd_set_cursor(0, 0);
+          lcd_print("HorizonGrid     ");
+          snprintf(fw_buf, sizeof(fw_buf), "FW: %-12s", FIRMWARE_VERSION);
+          lcd_set_cursor(1, 0);
+          lcd_print(fw_buf);
+          wdt_reset();
+          delay(3000);
+          mainMenuShow();
+          break;
+        }
+
       default:
         menuPos = 1000;
         mlvl4 = 0;

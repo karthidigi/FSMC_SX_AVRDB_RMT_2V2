@@ -3,6 +3,7 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 float internalBatteryVolt = 0;
+volatile uint16_t ladderBtnAdcRaw = 4095;
 
 int volRY = 0;
 int volYB = 0;
@@ -11,13 +12,12 @@ int volBR = 0;
 float curR = 0;
 float curY = 0;
 float curBM1 = 0;
-float curBM2 = 0;
 
 int elst = 0;
 
 // Define voltage and current pins for three phases plus fourth current
-const uint8_t V_PINS[] = { PIN_PD1, PIN_PD2, PIN_PD3 };           // VRY, VYB, VBR (AIN1, AIN2, AIN3)
-const uint8_t I_PINS[] = { PIN_PE1, PIN_PE2, PIN_PE3, PIN_PE0 };  // Current inputs (AIN9, AIN10, AIN11, AIN8)
+const uint8_t V_PINS[] = { PIN_PE0, PIN_PE1, PIN_PE2 };           // VRY, VYB, VBR (AIN1, AIN2, AIN3)
+const uint8_t I_PINS[] = { PIN_PF4, PIN_PF5, PIN_PE3 };  // Current inputs (AIN9, AIN10, AIN11, AIN8)
 
 
 class EnergyMonitor {
@@ -47,14 +47,14 @@ void EnergyMonitor::current(uint8_t pin, double iCal) {
 
 // Channel MUXPOS values
 const uint8_t channel_mux[] = {
-  ADC_MUXPOS_AIN1_gc,   // V0: PD1
-  ADC_MUXPOS_AIN9_gc,   // I0: PE1
-  ADC_MUXPOS_AIN2_gc,   // V1: PD2
-  ADC_MUXPOS_AIN10_gc,  // I1: PE2
-  ADC_MUXPOS_AIN3_gc,   // V2: PD3
-  ADC_MUXPOS_AIN11_gc,  // I2: PE3
-  ADC_MUXPOS_AIN8_gc,   // I3: PE0
-  ADC_MUXPOS_AIN0_gc    // Battery: PD0
+  ADC_MUXPOS_AIN8_gc,   // ch0: V0  (PE0  = AIN8)
+  ADC_MUXPOS_AIN20_gc,  // ch1: I0  (PF4  = AIN20)
+  ADC_MUXPOS_AIN9_gc,   // ch2: V1  (PE1  = AIN9)
+  ADC_MUXPOS_AIN21_gc,  // ch3: I1  (PE2  = AIN21)
+  ADC_MUXPOS_AIN10_gc,  // ch4: V2  (PF5  = AIN10)
+  ADC_MUXPOS_AIN11_gc,  // ch5: I2  (PE3  = AIN11)
+  ADC_MUXPOS_AIN7_gc,   // ch6: Battery    (PIN_BMS     = PD7 = AIN7)
+  ADC_MUXPOS_AIN6_gc    // ch7: Btn ladder (PIN_KEY_ADC = PD6 = AIN6)
 };
 
 const int num_channels = 8;
@@ -62,12 +62,12 @@ const int num_channels = 8;
 // Indices for V channels in channel_mux
 const int v_channel_indices[] = { 0, 2, 4 };  // V0, V1, V2
 
-// Create four EnergyMonitor instances
-EnergyMonitor emon[4];
+// Create three EnergyMonitor instances
+EnergyMonitor emon[3];
 
 // Calibration constants for each phase (increased by factor of 100)
 const float VOLT_CAL[] = { 11.1, 11.1, 11.1 };       // VRY, VYB, VBR (original x 100)
-const float CURR_CAL[] = { 0.4, 0.4, 0.4, 0.4 };
+const float CURR_CAL[] = { 0.4, 0.4, 0.4 };
 
 // Measurement variables
 volatile long long sumSq[8];             // sum of squares for each channel
@@ -133,8 +133,7 @@ void stop_measurement() {
 void compute_rms() {
   if (sample_count == 0) {
     for (int i = 0; i < 3; i++) emon[i].Vrms = 0;
-    for (int i = 0; i < 4; i++) emon[i].Irms = 0;
-    emon[3].Vrms = 0;
+    for (int i = 0; i < 3; i++) emon[i].Irms = 0;
     internalBatteryVolt = 0;
     return;
   }
@@ -147,18 +146,16 @@ void compute_rms() {
     double rmsV = sqrt((double)sumSq[ch] / sq_n);
     emon[i].Vrms = (VOLT_CAL[i] / 50.0) * rmsV;
   }
-  emon[3].Vrms = emon[2].Vrms;  // Shared with phase 2
 
-  // Compute Irms for 0-3
-  int i_ch[] = { 1, 3, 5, 6 };  // Channel indices for I0-I3
-  for (int j = 0; j < 4; j++) {
+  // Compute Irms for 0-2
+  int i_ch[] = { 1, 3, 5 };  // Channel indices for I0, I1, I2 (interleaved with V)
+  for (int j = 0; j < 3; j++) {
     int ch = i_ch[j];
     double rmsI = sqrt((double)sumSq[ch] / sq_n);
     emon[j].Irms = (CURR_CAL[j] / 50.0) * rmsI;
   }
-  // Compute battery voltage (average, not RMS)
-
-  double avg = (double)sumSq[7] / sq_n;
+  // Compute battery voltage (average, not RMS) — ch6: AIN7 (PD7 = PIN_BMS)
+  double avg = (double)sumSq[6] / sq_n;
 
   double pin_volt = avg * (2.5 / 4096.0);
 
@@ -168,19 +165,19 @@ void compute_rms() {
 ISR(ADC0_RESRDY_vect) {
   int sample = ADC0.RES;
 
-  if (current_channel == 7) {
-
-    // For battery, accumulate sum (DC)
-
+  if (current_channel == 6) {
+    // ch6: AIN7 (PD7 = PIN_BMS) = battery → accumulate for DC average
     sumSq[current_channel] += sample;
 
+  } else if (current_channel == 7) {
+    // ch7: AIN6 (PD6 = PIN_KEY_ADC) = button ladder → store latest reading
+    // This keeps ladderBtnAdcRaw fresh at ~250 Hz during energy measurement.
+    ladderBtnAdcRaw = sample;
+
   } else {
-
-    // For others, accumulate sum of squares (AC RMS)
-
+    // ch0–5: V/I channels → accumulate sum of squares for AC RMS
     sumSq[current_channel] += (long long)sample * sample;
   }
-  //  sumSq[current_channel] += (long long)sample * sample;
 
   // Check if voltage channel
   int v_idx = -1;
@@ -206,6 +203,32 @@ ISR(ADC0_RESRDY_vect) {
   ADC0.INTFLAGS = ADC_RESRDY_bm;
 }
 
+// Refresh a button-ladder sample while energy measurement ISR is idle.
+// During measurement the ISR updates ladderBtnAdcRaw from ch7 (AIN6 = PIN_KEY_ADC)
+// at ~250 Hz, so no manual conversion is needed in that window.
+void refreshButtonAdcSample() {
+  if (measuring) {
+    // ISR keeps ladderBtnAdcRaw current during measurement — nothing to do.
+    return;
+  }
+
+  uint8_t prevMux = ADC0.MUXPOS;
+  ADC0.MUXPOS    = ADC_MUXPOS_AIN6_gc;  // AIN6 = PD6 = PIN_KEY_ADC (button ladder)
+  ADC0.INTFLAGS  = ADC_RESRDY_bm;       // clear any stale result flag
+  ADC0.COMMAND   = ADC_STCONV_bm;       // start single conversion
+
+  // Timeout guard: 12-bit conversion at 6 MHz ADC clock takes ~2 µs (≈50 CPU cycles).
+  // 200 iterations gives ~8 µs headroom — prevents infinite blocking on ADC fault.
+  uint8_t timeout = 200;
+  while (!(ADC0.INTFLAGS & ADC_RESRDY_bm) && --timeout) {}
+
+  if (timeout) {
+    ladderBtnAdcRaw = ADC0.RES;
+  }
+  ADC0.INTFLAGS = ADC_RESRDY_bm;  // clear result-ready flag
+  ADC0.MUXPOS   = prevMux;        // restore previous channel
+}
+
 void emonInit() {
 
   // Configure ADC for 12-bit resolution with 2.5V reference
@@ -228,10 +251,18 @@ void emonInit() {
   TCB0.CTRLA = TCB_CLKSEL_CLKDIV1_gc;  // CLK_PER, not enabled yet
 
 
-  for (int i = 0; i < 4; i++) {
-    int voltageIndex = (i < 3) ? i : 2;  // Associate fourth current with B phase
-    emon[i].voltage(V_PINS[voltageIndex], VOLT_CAL[voltageIndex]);
+  for (int i = 0; i < 3; i++) {
+    emon[i].voltage(V_PINS[i], VOLT_CAL[i]);
     emon[i].current(I_PINS[i], CURR_CAL[i]);
+  }
+}
+
+// Force immediate current measurement update (for ACK accuracy)
+void forceCurrentUpdate() {
+  // Only force if not already measuring and enough time has passed
+  if (!measuring && (millis() - lastUpdate >= 500)) {
+    // Trigger immediate measurement
+    lastUpdate = millis() - 1000;  // Force next emonFunc() to start measurement
   }
 }
 
@@ -255,8 +286,7 @@ void emonFunc() {
         curR = emon[0].Irms;
         curY = emon[1].Irms;
         curBM1 = emon[2].Irms;
-        curBM2 = emon[3].Irms;
-       
+
 
         // curR = random(2, 9);
         // curY = random(2, 9);

@@ -4,23 +4,26 @@
 #include "hwPins.h"
 #include "avrWDT.h"
 #include "ledTicker.h"
-#include "rotary.h"
+#include "buttin.h"
 #include "i2cSetup.h"
 #include "ds3231.h"
 #include "epochHandler.h"
 #include "storage.h"
 #include "emon.h"
+#include "relayTimer.h"
 #include "motor.h"
-#include "prevention.h"
 #include "mode.h"
+#include "prevention.h"
 #include "lcdDisp.h"
-#include "menu.h"
 #include "aesMain.h"
 #include "devId.h"
 #include "encrypt.h"
 #include "rxFunc.h"
 #include "decrypt.h"
-#include "llcc68Main.h"
+#include "sx1268Main.h"
+#include "pairNode.h"    // GW-side pairing state machine  (defines: pairNodeTick, enterPairNodeMode)
+#include "pairRemote.h"  // Remote-side pairing + dispatchPairPkt  (defines: pairRemoteTick, enterRemPairMode)
+#include "menu.h"        // LCD menu (after pairing headers so it can access pair state vars)
 #include "iotData.h"
 #include "rfData.h"
 #include "simulaton.h"
@@ -36,20 +39,26 @@ void setup() {
   i2c1Init();
   lcdInit();
   emonInit();
+  relayTimerInit();
   loadcon();
   loadModeVal();
   getDeviceSerId();
   aesInit("[horizon]");
-  llcc68Init();
+  sx1268Init();
   wdtInit();
   wdt_reset();
-  delay(1000);
-  lcd_backlight(1);
+ 
   lcd_set_cursor(0, 0);
-  lcd_print("  HORIZONGRID   ");
+  lcd_print("Horizongrid     ");
   lcd_set_cursor(1, 0);
-  lcd_print("FW : 3P2MV1.01  ");
-
+  lcd_print("FW : 3P2MV2.02  ");
+  // Keep boot splash visible before loop UI refresh starts.
+  unsigned long splashStart = millis();
+  while (millis() - splashStart < 1500UL) {
+    wdt_reset();
+    delay(10);
+  }
+ delay(1000);
   if (storage.app2Run) {
     digitalWrite(PIN_M2ON, HIGH);
   } else {
@@ -59,6 +68,7 @@ void setup() {
 
 void loop() {
   //Serial3.println("qqqq");
+  motorRelayService();
   readHWSerial();
   RedLedTickerFunc();
   overLoadCheck();
@@ -71,7 +81,9 @@ void loop() {
   readIotSerial();
   iotDataSendVol(0);
   AttribIotDatSendSend();
-  llcc68Func();
+  sx1268Func();
+  pairNodeTick();    // GW pairing beacon / channel switch (must run after sx1268Func)
+  pairRemoteTick();  // Remote pairing scan / retry     (must run after pairNodeTick)
   //motStatus2send(m1StaVars);
   ackElst();
   rtcFetchTimeFunc();
@@ -83,10 +95,9 @@ void loop() {
     menuUi();
   }
   ////////////////
-  rotaryFunc();
   rotaryVal();
   loraTxFunc();
   wdt_reset();
 
-  //loraTx10sec();
+//  loraTx10sec();
 }

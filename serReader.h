@@ -69,7 +69,7 @@ void readIotSerial() {
           // }
 
 
-          if (doc.containsKey("epoch")) {
+          if (doc["epoch"].is<uint32_t>()) {
             uint32_t epoch = doc["epoch"].as<uint32_t>();
             lcdString = doc["datetime"].as<String>();
             lcd_set_cursor(0, 0);
@@ -81,9 +81,9 @@ void readIotSerial() {
 
 
 
-          if (doc.containsKey("info")) {
+          if (doc["info"].is<JsonObject>()) {
             JsonVariant infoObj = doc["info"];
-            if (infoObj.containsKey("rssi")) {
+            if (infoObj["rssi"].is<int>()) {
               lcdInt = infoObj["rssi"].as<int>();
               lcd_set_cursor(0, 0);
               lcd_print("                ");
@@ -96,7 +96,7 @@ void readIotSerial() {
             }
 
 
-            if (infoObj.containsKey("conWifi")) {
+            if (infoObj["conWifi"].is<const char*>()) {
               lcdString = infoObj["conWifi"].as<String>();
               uiFunc(1);
               lcd_set_cursor(0, 0);
@@ -106,7 +106,7 @@ void readIotSerial() {
               lcd_set_cursor(1, 0);
               lcd_print("      WiFi      ");
             }
-            if (infoObj.containsKey("ssid")) {
+            if (infoObj["ssid"].is<const char*>()) {
               lcdString = infoObj["ssid"].as<String>();
               uiFunc(1);
               lcd_set_cursor(0, 0);
@@ -117,7 +117,7 @@ void readIotSerial() {
               lcd_set_cursor(1, (16 - lcdString.length()) / 2);
               lcd_print(lcdString.c_str());
             }
-            if (infoObj.containsKey("conCloud")) {
+            if (infoObj["conCloud"].is<const char*>()) {
               lcdString = infoObj["conCloud"].as<String>();
               uiFunc(1);
               lcd_set_cursor(0, 0);
@@ -128,7 +128,7 @@ void readIotSerial() {
               lcd_set_cursor(1, 0);
               lcd_print("     cloud      ");
             }
-            if (infoObj.containsKey("otaDone")) {
+            if (!infoObj["otaDone"].isNull()) {
               uiFunc(1);
               lcd_set_cursor(0, 0);
               //c_print("1234567890123456");
@@ -138,21 +138,21 @@ void readIotSerial() {
             }
           }
 
-          if (doc.containsKey("method") && doc["method"].as<String>() == "checkStatus") {
+          if (doc["method"].is<const char*>() && doc["method"].as<String>() == "checkStatus") {
             iotDataSendVol(1);
           }
-          if (doc.containsKey("com")) {
+          if (!doc["com"].isNull()) {
             iotDataSendVol(1);
             InitAck = 1;
           }
           ///////////////////////////////////////////////
-          if (doc.containsKey("shared")) {
+          if (doc["shared"].is<JsonObject>()) {
             JsonObject shared = doc["shared"];
             //loadcon();
             // nested checks inside "shared"
 
 
-            if (shared.containsKey("name")) {
+            if (shared["name"].is<const char*>()) {
               const char* name = shared["name"];  // get as C string
               strncpy(storage.dname, name, sizeof(storage.dname) - 1);
               storage.dname[sizeof(storage.dname) - 1] = '\0';  // ensure null termination
@@ -160,20 +160,46 @@ void readIotSerial() {
               lcd_nameShow(1);
             }
 
-            if (shared.containsKey("a1ops")) {
-              storage.modeM1 = shared["a1ops"].as<uint8_t>();
-              Serial3.print("a1ops: ");
-              Serial3.println(storage.modeM1);
-              savecon();
-              loadModeVal();
-              uiFunc(1);
-              lcd_modeShow();
-              iotSerial.println("<{\"TS\":{\"n\":" + String(storage.modeM1 + 1) + "}}>");
-              Serial3.println("<{\"TS\":{\"n\":" + String(storage.modeM1 + 1) + "}}>");
-              delay(500);
+            if (!shared["a1ops"].isNull()) {
+              int rawMode = 0;
+              if (shared["a1ops"].is<const char*>()) {
+                rawMode = String(shared["a1ops"].as<const char*>()).toInt();
+              } else {
+                rawMode = shared["a1ops"].as<int>();
+              }
+
+              // Accept normal 0-5 mode encoding, and map legacy 6 -> 5.
+              if (rawMode == 6) {
+                rawMode = 5;
+              }
+
+              if (rawMode >= 0 && rawMode <= 5) {
+                uint8_t nextMode = (uint8_t)rawMode;
+                if (isLocalModeChangeGuardActive() && nextMode != storage.modeM1) {
+                  Serial3.print("Ignoring stale a1ops during local guard: ");
+                  Serial3.println(rawMode);
+                } else if (nextMode != storage.modeM1) {
+                  storage.modeM1 = nextMode;
+                  Serial3.print("a1ops: ");
+                  Serial3.println(storage.modeM1);
+                  savecon();
+                  loadModeVal();
+                  uiFunc(1);
+                  lcd_modeShow();
+                  iotSerial.println("<{\"TS\":{\"n\":" + String(storage.modeM1 + 1) + "}}>");
+                  Serial3.println("<{\"TS\":{\"n\":" + String(storage.modeM1 + 1) + "}}>");
+                  delay(500);
+                } else {
+                  Serial3.print("a1ops unchanged: ");
+                  Serial3.println(rawMode);
+                }
+              } else {
+                Serial3.print("Ignoring invalid a1ops: ");
+                Serial3.println(rawMode);
+              }
             }
 
-            if (shared.containsKey("a1auDly")) {
+            if (shared["a1auDly"].is<const char*>()) {
               const char* val = shared["a1auDly"];  // get as const char*
               strncpy(storage.autoM1, val, sizeof(storage.autoM1) - 1);
               storage.autoM1[sizeof(storage.autoM1) - 1] = '\0';  // ensure null-termination
@@ -187,7 +213,7 @@ void readIotSerial() {
               lcd_modeShow();
             }
 
-            if (shared.containsKey("a1lasRem")) {
+            if (shared["a1lasRem"].is<const char*>()) {
               const char* val = shared["a1lasRem"];  // get as const char*
               strncpy(storage.lasRemM1, val, sizeof(storage.lasRemM1) - 1);
               storage.lasRemM1[sizeof(storage.lasRemM1) - 1] = '\0';  // ensure null-termination
@@ -201,7 +227,7 @@ void readIotSerial() {
               lcd_modeShow();
             }
 
-            if (shared.containsKey("a1cyc")) {
+            if (shared["a1cyc"].is<const char*>()) {
               const char* val = shared["a1cyc"];  // get as const char*
               strncpy(storage.cyclicM1, val, sizeof(storage.cyclicM1) - 1);
               storage.autoM1[sizeof(storage.autoM1) - 1] = '\0';  // ensure null-termination
@@ -215,7 +241,7 @@ void readIotSerial() {
               lcd_modeShow();
             }
 
-            if (shared.containsKey("a1cTmr")) {
+            if (shared["a1cTmr"].is<const char*>()) {
               const char* val = shared["a1cTmr"];  // get as const char*
               strncpy(storage.countM1, val, sizeof(storage.countM1) - 1);
               storage.autoM1[sizeof(storage.countM1) - 1] = '\0';  // ensure null-termination
@@ -233,7 +259,7 @@ void readIotSerial() {
               char key[3];
               sprintf(key, "s%d", i);  // makes "s0", "s1", ...
 
-              if (shared.containsKey(key)) {
+              if (!shared[key].isNull()) {
                 strncpy(storage.sch[i], shared[key], sizeof(storage.sch[i]) - 1);
                 storage.sch[i][sizeof(storage.sch[i]) - 1] = '\0';
 
@@ -247,7 +273,7 @@ void readIotSerial() {
               }
             }
 
-            if (shared.containsKey("hvTh")) {
+            if (shared["hvTh"].is<const char*>()) {
               String val = shared["hvTh"].as<String>();
               val.remove(0, 1);  // remove leading 'z'
               storage.ovrVol = (uint16_t)val.toInt();
@@ -257,7 +283,7 @@ void readIotSerial() {
               loadModeVal();
             }
 
-            if (shared.containsKey("lvTh")) {
+            if (shared["lvTh"].is<const char*>()) {
               String val = shared["lvTh"].as<String>();
               val.remove(0, 1);
               storage.undVol = (uint16_t)val.toInt();
@@ -267,7 +293,7 @@ void readIotSerial() {
               loadModeVal();
             }
 
-            if (shared.containsKey("a1dry")) {
+            if (shared["a1dry"].is<const char*>()) {
               String val = shared["a1dry"].as<String>();
               val.remove(0, 1);
               storage.dryRunM1 = val.toFloat();
@@ -277,7 +303,7 @@ void readIotSerial() {
               loadModeVal();
             }
 
-            if (shared.containsKey("a1ovl")) {
+            if (shared["a1ovl"].is<const char*>()) {
               String val = shared["a1ovl"].as<String>();
               val.remove(0, 1);
               storage.ovLRunM1 = val.toFloat();

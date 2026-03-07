@@ -13,8 +13,8 @@ static inline void encryptData(const char *msg) {
   // Build AES key
   // Read peer serial from EEPROM instead of chip serial
   //readPeerSerial(peerSerialKey, sizeof(peerSerialKey)); // attiny
- //strncpy(peerSerialKey, storage.remote, sizeof(peerSerialKey) - 1);  //avr
- strncpy(peerSerialKey, REMOTE_ID, sizeof(peerSerialKey) - 1);  //avr
+ strncpy(peerSerialKey, storage.remote, sizeof(peerSerialKey) - 1);  //avr — uses paired serial
+ //strncpy(peerSerialKey, REMOTE_ID, sizeof(peerSerialKey) - 1);  //avr — old hardcoded (removed)
 
   peerSerialKey[sizeof(peerSerialKey) - 1] = '\0';
   DEBUG_PRINT(F("Peer Serial: "));

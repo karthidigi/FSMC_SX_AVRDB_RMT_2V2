@@ -35,6 +35,13 @@ char tAmPm[3] = "AM";
 
 ////////////////////////////////////////////////////////////////////////////////
 
+// ==========================================================================
+// All code below requires the physical DS3231 to be present.
+// Set #define ENABLE_RTC in zSettings.h to include it; comment it out to
+// exclude all I2C traffic and compile only lightweight no-op stubs instead.
+// ==========================================================================
+#ifdef ENABLE_RTC
+
 byte decToBcd(byte val) {
   // Convert normal decimal numbers to binary coded decimal
   return ((val / 10 * 16) + (val % 10));
@@ -294,3 +301,19 @@ void ds3231_SetDateTime(int YY, int mm, int DD, int HH, int MM, int SS, int DOW)
   ds3231_setMonth(mm);
   ds3231_setYear(YY);
 }
+
+#else  // ENABLE_RTC not defined — provide lightweight no-op stubs
+// All globals (rtcPassVars, tSec, tMin, tHrs …) are still declared above so
+// scheduler, menu, and other modules that reference them compile without errors.
+// rtcPassVars stays 0 (RTC absent), time globals stay at their default 99 values.
+
+inline void rtcFetchTimeFunc()                                        {}
+inline void ds3231_getTemperature()                                   {}
+inline void ds3231Init()                                              {}
+inline void rtc_get_time(uint8_t&, uint8_t&, uint8_t&)               {}
+inline void ds3231_SetDateTime(int,int,int,int,int,int,int)           {}
+inline String getRtcTimeStamp()  { return String("--"); }
+inline String getTimeFormat()    { return String("--:--:-- --"); }
+inline String getDateFormat()    { return String("--/--/-- ---"); }
+
+#endif  // ENABLE_RTC

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(git -C \"C:/Users/Saran_Jaz/OneDrive/Documents/02_CLAUD_COWORK/fmcv2_1606_LLCC68_Claude\" log --oneline)",
+      "Bash(grep -l \"void \" \"C:/Users/Saran_Jaz/OneDrive/Documents/02_CLAUD_COWORK/fmcv2_1606_LLCC68_Claude/\"*.h)",
+      "Bash(xargs -I{} sh -c 'head -3 \"\"{}\"\" | grep -q \"\"pragma once\\\\|#ifndef\"\" || echo \"\"NO GUARD: {}\"\"')"
+    ]
+  }
+}

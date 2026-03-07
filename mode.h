@@ -5,8 +5,18 @@ unsigned long atSec = 0;
 unsigned long atMins = 0;
 unsigned long atLastTrigdMillis = 0;
 
+unsigned long localModeChangeGuardUntil = 0;
+
+static inline void markLocalModeChange() {
+  localModeChangeGuardUntil = millis() + 5000UL;
+}
+
+static inline bool isLocalModeChangeGuardActive() {
+  return millis() < localModeChangeGuardUntil;
+}
+
 bool countM1Trigd = 0;
-long countM1BuffMills = 0;
+unsigned long countM1BuffMills = 0;
 
 
 unsigned long cyM1BuffMillis = 0;
@@ -85,9 +95,11 @@ void modeM1() {
     // Auto
     case 1:
       YellowLedTickerFunc();
+
+      // Countdown: only count when no fault present and trigger hasn't fired yet.
       if (!autoM1Trigd && elst == 0) {
         tickYelLedVars = 1;
-        if (millis() >= ((atMins + atSec) * 1000) + autoM1BuffMillis) {
+        if (millis() >= ((atMins + atSec) * 1000UL) + autoM1BuffMillis) {
           m1On();
           a1et = 13;
           digitalWrite(PIN_LED_YELLOW, LOW);
@@ -97,11 +109,24 @@ void modeM1() {
           tickYelLedVars = 0;
         }
       }
-      if (elst > 0) {
+
+      // Fault handling:
+      //   PRE-trigger  (autoM1Trigd == 0): restart the full countdown so the
+      //                configured delay runs again once the fault clears.
+      //   POST-trigger (autoM1Trigd == 1): do NOT restart countdown.
+      //                PowChecks() + m1OffActive already protect the motor.
+      //                The retry block below will re-fire m1On() as soon as
+      //                the fault protection releases.
+      if (elst > 0 && !autoM1Trigd) {
         autoM1BuffMillis = millis();
-        autoM1Trigd = 0;
       }
-      if (autoM1Trigd && !m1StaVars && (millis() - atLastTrigdMillis >= 3000)) {
+
+      // Retry: trigger fired but motor not running yet — retry every 3 s.
+      // Guard with !m1OffActive so we only attempt when the relay is actually
+      // free; this also means atLastTrigdMillis is only updated on a real
+      // attempt, so the retry fires promptly once the fault clears.
+      if (autoM1Trigd && !m1StaVars && !m1OffActive
+          && (millis() - atLastTrigdMillis >= 3000)) {
         a1et = 13;
         m1On();
         atLastTrigdMillis = millis();
@@ -185,6 +210,11 @@ void modeM1() {
     ////////////////////////
     // Scheduler
     case 4:
+      // Per-slot last-triggered minute trackers — prevent re-firing within the same
+      // minute without a blocking delay.  Initialised to 255 (impossible tMin value).
+      static uint8_t schOnTrigMin[10]  = {255,255,255,255,255,255,255,255,255,255};
+      static uint8_t schOffTrigMin[10] = {255,255,255,255,255,255,255,255,255,255};
+
       //Serial3.println("M1-Scheduler");
       for (int i = 0; i < 10; i++) {
         //EDHHMMHHMM
@@ -199,33 +229,23 @@ void modeM1() {
                 //  Serial3.print(" 4 ");
 
                 if (hrs24 == String(storage.sch[i]).substring(3, 5).toInt() && tMin == String(storage.sch[i]).substring(5, 7).toInt()) {
-                  //Serial3.println(tSec);
-                  // Serial3.print(hrs24);
-                  // Serial3.print(" = ");
-                  // Serial3.print(String(storage.sch[i]).substring(3, 5).toInt());
-                  // Serial3.print("  -  ");
-                  // Serial3.print(tMin);
-                  // Serial3.print(" = ");
-                  // Serial3.print(String(storage.sch[i]).substring(5, 7).toInt());
-                  if (elst == 0) {
+                  // Trigger ON once per minute per slot (no blocking delay needed).
+                  if (elst == 0 && schOnTrigMin[i] != tMin) {
+                    schOnTrigMin[i] = tMin;
                     a1et = 21;
                     m1On();
                   }
                 }
               } else {
                 if (hrs24 == String(storage.sch[i]).substring(7, 9).toInt() && tMin == String(storage.sch[i]).substring(9, 11).toInt()) {
-                  //Serial3.println(tSec);
-                  // Serial3.print(hrs24);
-                  // Serial3.print(" = ");
-                  // Serial3.print(String(storage.sch[i]).substring(7, 9).toInt());
-                  // Serial3.print("  -  ");
-                  // Serial3.print(tMin);
-                  // Serial3.print(" = ");
-                  // Serial3.print(String(storage.sch[i]).substring(9, 11).toInt());
-                  a1et = 22;
-                  m1Off();
-
-                  delay(1000);
+                  // Trigger OFF once per minute per slot.
+                  // Replaced delay(1000) — per-slot minute tracking prevents re-trigger
+                  // without blocking the main loop or stalling button detection.
+                  if (schOffTrigMin[i] != tMin) {
+                    schOffTrigMin[i] = tMin;
+                    a1et = 22;
+                    m1Off();
+                  }
                 }
               }
             }
@@ -333,3 +353,4 @@ void modeM1() {
       break;
   }
 }
+

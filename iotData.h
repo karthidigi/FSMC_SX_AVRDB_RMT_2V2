@@ -94,7 +94,6 @@ void AttribIotDatSendSend() {
   static unsigned long changeTime = 0;  // when the change was detected
   static bool pending = false;          // waiting flag
   static int SCValue = 1;               // store previous value
-  static int currentValue = -1;         // store previous value
 
   if (InitAck && (storage.modeM1 != lastValue)) {
     lastValue = storage.modeM1;
