@@ -50,6 +50,15 @@ bool          voltFaultTimerRun  = false;
 unsigned long phaseFaultStartMs  = 0;   // used for Phase Cut only
 bool          phaseFaultTimerRun = false;
 
+// Recovery window state — set when fault clears and stability countdown begins.
+// Exposed globally so lcdDisp.h can show "UV/OV/PH Recovry MM:SS".
+bool          uvRecovering   = false;
+unsigned long uvRecovStartMs = 0;
+bool          ovRecovering   = false;
+unsigned long ovRecovStartMs = 0;
+bool          phRecovering   = false;
+unsigned long phRecovStartMs = 0;
+
 // Separate hysteresis for Under Voltage and Over Voltage.
 //
 // UV — percentage added ABOVE the trip threshold to form the clear level:
@@ -284,8 +293,9 @@ void underVoltageCheck() {
         voltFaultStartMs  = millis(); if (!voltFaultStartMs) voltFaultStartMs = 1;
         voltFaultTimerRun = true;
       }
-      unVolVars = 1;
-      elst      = 3;
+      unVolVars    = 1;
+      elst         = 3;
+      uvRecovering = false;   // fault is active, not in recovery
     }
     uvStableStartMs = 0;
 
@@ -297,18 +307,22 @@ void underVoltageCheck() {
     // FAULT ACTIVE, VOLTAGE HAS RISEN
     if (allAboveClear) {
       if (uvStableStartMs == 0) {
-        uvStableStartMs = millis(); if (!uvStableStartMs) uvStableStartMs = 1;
+        uvStableStartMs  = millis(); if (!uvStableStartMs) uvStableStartMs = 1;
+        uvRecovering     = true;    // start recovery countdown display
+        uvRecovStartMs   = uvStableStartMs;
       }
       if (millis() - uvStableStartMs >= (atMins + atSec) * 1000UL) {
         unVolVars         = 0;
         uvStableStartMs   = 0;
         voltFaultTimerRun = false;
+        uvRecovering      = false;  // recovery complete
       } else {
         elst = 3;
       }
     } else {
-      // In dead-band (above trip but below clear) - reset stability, keep fault
+      // In dead-band (above trip but below clear) — reset stability, keep fault
       uvStableStartMs = 0;
+      uvRecovering    = false;
       elst            = 3;
     }
   }
@@ -338,8 +352,9 @@ void highVoltageCheck() {
         voltFaultStartMs  = millis(); if (!voltFaultStartMs) voltFaultStartMs = 1;
         voltFaultTimerRun = true;
       }
-      hiVolVars = 1;
-      elst      = 4;
+      hiVolVars    = 1;
+      elst         = 4;
+      ovRecovering = false;   // fault is active, not in recovery
     }
     ovStableStartMs = 0;
 
@@ -351,17 +366,21 @@ void highVoltageCheck() {
     // FAULT ACTIVE, VOLTAGE HAS DROPPED
     if (allBelowClear) {
       if (ovStableStartMs == 0) {
-        ovStableStartMs = millis(); if (!ovStableStartMs) ovStableStartMs = 1;
+        ovStableStartMs  = millis(); if (!ovStableStartMs) ovStableStartMs = 1;
+        ovRecovering     = true;    // start recovery countdown display
+        ovRecovStartMs   = ovStableStartMs;
       }
       if (millis() - ovStableStartMs >= (atMins + atSec) * 1000UL) {
         hiVolVars         = 0;
         ovStableStartMs   = 0;
         voltFaultTimerRun = false;
+        ovRecovering      = false;  // recovery complete
       } else {
         elst = 4;
       }
     } else {
       ovStableStartMs = 0;
+      ovRecovering    = false;
       elst            = 4;
     }
   }
@@ -403,6 +422,7 @@ void phaseChecks() {
     phaseFault      = 1;
     elst            = 2;
     phStableStartMs = 0;
+    phRecovering    = false;   // fault is active, not in recovery
 
   } else {
     // NO PHASE LOW
@@ -415,12 +435,15 @@ void phaseChecks() {
     // Phase cut: stability timer before clearing
     if (phaseFault) {
       if (phStableStartMs == 0) {
-        phStableStartMs = millis(); if (!phStableStartMs) phStableStartMs = 1;
+        phStableStartMs  = millis(); if (!phStableStartMs) phStableStartMs = 1;
+        phRecovering     = true;    // start recovery countdown display
+        phRecovStartMs   = phStableStartMs;
       }
       if (millis() - phStableStartMs >= (atMins + atSec) * 1000UL) {
         phaseFault         = 0;
         phStableStartMs    = 0;
         phaseFaultTimerRun = false;
+        phRecovering       = false;  // recovery complete
       } else {
         elst = 2;
       }
@@ -430,12 +453,43 @@ void phaseChecks() {
 
 
 //////////////////////////////////////
+// Bypass switch check.
+// Called first in every loop() iteration.
+// When PD5 is HIGH (bypass ON): clears all fault states, forces M1OFF relay ON,
+// cancels any running off-timer, and blocks protection from stopping the motor.
+// When PD5 is LOW: bypassActive is false and normal protection resumes.
+//////////////////////////////////////
+void bypassCheck() {
+  bypassActive = (digitalRead(Bypass) == HIGH);
+
+  if (bypassActive) {
+    // Cancel any pending off-sequence so relay stays energised
+    if (m1OffActive) {
+      stopOffTimer();
+      m1OffActive = false;
+    }
+    // Keep M1OFF relay energised (NO closed = run circuit intact)
+    digitalWrite(PIN_M1OFF, HIGH);
+
+    // Clear every fault flag so LCD and IoT show no fault while bypassed
+    elst          = 0;
+    unVolVars     = 0;  hiVolVars    = 0;
+    overloadVars  = 0;  dryRunVars   = 0;
+    openWireVars  = 0;  leakageVars  = 0;
+    powerLoss     = 0;  phaseFault   = 0;
+    tickRedLedVars = 0;
+  }
+}
+
+//////////////////////////////////////
 // Main voltage protection entry point.
 // Called every main-loop cycle after 5 s boot settle.
 // Resets elst=0 then lets the three check functions reassert it
 // if a confirmed fault is present.
 //////////////////////////////////////
 void PowChecks() {
+  if (bypassActive) return;   // bypass switch overrides all voltage protection
+
   if (millis() > 5000) {
     elst = 0;
     underVoltageCheck();

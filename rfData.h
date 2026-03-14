@@ -7,6 +7,23 @@ void encryptNTx(const char *msg) {
 }
 
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Fault-status reply — D0 / D1 / D2
+//
+//   D0 = normal operation  (no voltage fault, no bypass)
+//   D1 = voltage fault active (elst > 0 and bypass is OFF)
+//   D2 = bypass switch active
+//
+// Called only on demand when the remote sends an "S?" status query.
+// Never auto-transmits; no periodic timer.
+// ──────────────────────────────────────────────────────────────────────────────
+void loraTxFaultStatus() {
+  if (bypassActive)  { encryptNTx("[D2]"); DEBUG_PRINTN(F("FaultStatus TX: D2")); }
+  else if (elst > 0) { encryptNTx("[D1]"); DEBUG_PRINTN(F("FaultStatus TX: D1")); }
+  else               { encryptNTx("[D0]"); DEBUG_PRINTN(F("FaultStatus TX: D0")); }
+}
+
+
 
 void loraTx10sec() {
   static unsigned long timerMillis = 0;

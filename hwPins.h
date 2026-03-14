@@ -3,7 +3,7 @@
 #define LLCC68_MOSI PIN_PA4
 #define LLCC68_MISO PIN_PA5
 #define LLCC68_SCK PIN_PA6
-#define LLCC68_NSS PIN_PC7  // Veppam CUS
+#define LLCC68_NSS PIN_PC7
 #define LLCC68_BUSY PIN_PC5
 #define LLCC68_RESET PIN_PC6
 #define LLCC68_DIO1 PIN_PC4
@@ -31,13 +31,16 @@
 
 #define PIN_BMS PIN_PD7
 
-#define PIN_BYPass PIN_PA0
+#define S_MID_PA0 PIN_PA0
 #define PIN_KEY_ADC PIN_PD6
 
 #define PIN_M1ON PIN_PD2
 #define PIN_M1OFF PIN_PD3
-#define PIN_M2ON PIN_PD4
+#define PIN_LiREL PIN_PD4
 #define Bypass PIN_PD5
+
+// Bypass switch state — declared here so motor.h and prevention.h can both see it
+bool bypassActive = false;
 
 #define PIN_LED_BLUE PIN_PA3
 #define PIN_LED_RED PIN_PA2    // Logic HIGH turns on the LED
@@ -46,9 +49,18 @@
 
 // PA2 is shared between RED (active HIGH) and GREEN (active LOW).
 // Use tri-state (INPUT = open-drain) to turn both off.
-#define pa2LedOff()   do { pinMode(PIN_PA2, INPUT);                              } while(0)
-#define pa2RedOn()    do { pinMode(PIN_PA2, OUTPUT); digitalWrite(PIN_PA2, HIGH); } while(0)
-#define pa2GreenOn()  do { pinMode(PIN_PA2, OUTPUT); digitalWrite(PIN_PA2, LOW);  } while(0)
+#define pa2LedOff() \
+  do { pinMode(PIN_PA2, INPUT); } while (0)
+#define pa2RedOn() \
+  do { \
+    pinMode(PIN_PA2, OUTPUT); \
+    digitalWrite(PIN_PA2, HIGH); \
+  } while (0)
+#define pa2GreenOn() \
+  do { \
+    pinMode(PIN_PA2, OUTPUT); \
+    digitalWrite(PIN_PA2, LOW); \
+  } while (0)
 
 #define PIN_ERST PIN_PF6
 
@@ -68,17 +80,19 @@ void initHwPins() {
 
   pinMode(PIN_M1ON, OUTPUT);
   pinMode(PIN_M1OFF, OUTPUT);
-  digitalWrite(PIN_M1OFF, HIGH);   // NO relay: energise at boot → contact closed → normal run
-  pinMode(PIN_M2ON, OUTPUT);
+  digitalWrite(PIN_M1OFF, HIGH);  // NO relay: energise at boot → contact closed → normal run
+  pinMode(PIN_LiREL, OUTPUT);
+  digitalWrite(PIN_LiREL, LOW);   // LiREL relay — de-energised at boot
   // pinMode(PIN_M2OFF, OUTPUT);
-
-  pa2LedOff();                     // PA2 shared pin: start with both LEDs off (tri-state)
+  pinMode(S_MID_PA0, INPUT);
+  pa2LedOff();  // PA2 shared pin: start with both LEDs off (tri-state)
   pinMode(PIN_LED_YELLOW, OUTPUT);
 
   pinMode(PIN_KEY_ADC, INPUT);
+  pinMode(Bypass, INPUT);  // Bypass switch — external pull-down; HIGH = bypass ON
 
   pinMode(PIN_LED_BLUE, OUTPUT);
-  digitalWrite(PIN_LED_BLUE, LOW);   // BLUE off at boot (active HIGH)
+  digitalWrite(PIN_LED_BLUE, LOW);  // BLUE off at boot (active HIGH)
 
   pinMode(LLCC68_NSS, OUTPUT);
   pinMode(LLCC68_RESET, OUTPUT);
@@ -86,9 +100,14 @@ void initHwPins() {
   pinMode(LLCC68_DIO1, INPUT);
 
   // Boot flash: RED on -> GREEN on -> all off
-  pa2RedOn();  digitalWrite(PIN_LED_YELLOW, LOW);  delay(200);
-  pa2GreenOn(); digitalWrite(PIN_LED_YELLOW, HIGH); delay(200);
-  pa2LedOff();  digitalWrite(PIN_LED_YELLOW, HIGH);
+  pa2RedOn();
+  digitalWrite(PIN_LED_YELLOW, LOW);
+  delay(200);
+  pa2GreenOn();
+  digitalWrite(PIN_LED_YELLOW, HIGH);
+  delay(200);
+  pa2LedOff();
+  digitalWrite(PIN_LED_YELLOW, HIGH);
 
 
   pinMode(PIN_ERST, OUTPUT);

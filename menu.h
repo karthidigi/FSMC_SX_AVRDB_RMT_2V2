@@ -1,4 +1,6 @@
 #include "Arduino.h"
+// Forward declaration — iotDataSendVol is defined in iotData.h (included after menu.h)
+void iotDataSendVol(bool now);
 bool mlvl1 = 1;
 bool mlvl2 = 0;
 bool mlvl3 = 0;
@@ -22,6 +24,7 @@ void rotaryVal() {
   if (rotValPlus) {
     if (mlvl1) {
       menuPos = menuPos + 1000;
+      if (menuPos > 7000) menuPos = 1000;   // wrap DOWN past [HOME] → MODES
     } else if (mlvl2) {
       menuPos = menuPos + 100;
     } else if (mlvl3) {
@@ -35,6 +38,7 @@ void rotaryVal() {
   if (rotValMinus) {
     if (mlvl1) {
       menuPos = menuPos - 1000;
+      if (menuPos < 1000) menuPos = 7000;   // wrap UP past MODES → [HOME]
     } else if (mlvl2) {
       menuPos = menuPos - 100;
     } else if (mlvl3) {
@@ -613,12 +617,13 @@ bool get1ValFuncS1(String ValName, uint8_t &v1, char x, int xT, int yT) {
 }
 
 static int maxMlvl2OffsetForGroup(int groupBase) {
-  if (groupBase == 1000) return 700;  // MODES:        1100..1700
-  if (groupBase == 2000) return 600;  // PRESET:       2100..2600
-  if (groupBase == 3000) return 800;  // SETTINGS:     3100..3800 (factory reset removed)
-  if (groupBase == 4000) return 100;  // CONTACT:      4100
-  if (groupBase == 5000) return 100;  // ABOUT DEVICE: 5100
-  if (groupBase == 6000) return 100;  // [HOME]:       6100
+  if (groupBase == 1000) return 700;  // MODES:         1100..1700
+  if (groupBase == 2000) return 600;  // PRESET:        2100..2600
+  if (groupBase == 3000) return 800;  // SETTINGS:      3100..3800 (Light Switch moved to main menu)
+  if (groupBase == 4000) return 100;  // CONTACT:       4100
+  if (groupBase == 5000) return 100;  // ABOUT DEVICE:  5100
+  if (groupBase == 6000) return 100;  // LIGHT SWITCH:  6100
+  if (groupBase == 7000) return 100;  // [HOME]:        7100
   return 100;
 }
 
@@ -689,7 +694,7 @@ void menuUi() {
     }
 
     if (mlvl1) {
-      if (menuPos < 999 || menuPos > 6000) {
+      if (menuPos < 999 || menuPos > 7000) {
         menuPos = 1000;
         Serial3.print("after condition 1 - ");
         Serial3.println(menuPos);
@@ -1113,7 +1118,7 @@ void menuUi() {
         lcd_set_cursor(0, 0);
         lcd_print(" -> ABOUT DVC   ");
         lcd_set_cursor(1, 0);
-        lcd_print("    [ HOME ]    ");
+        lcd_print("   LIGHT SWITCH ");
         break;
 
       // ── SETTINGS mlvl2 rows ────────────────────────────────
@@ -1522,9 +1527,90 @@ void menuUi() {
         lcd_set_cursor(0, 0);
         lcd_print("    ABOUT DVC   ");
         lcd_set_cursor(1, 0);
+        lcd_print("-> LIGHT SWITCH ");
+        break;
+
+      case 7000:
+        lcd_set_cursor(0, 0);
+        lcd_print("   LIGHT SWITCH ");
+        lcd_set_cursor(1, 0);
         lcd_print(" -> [ HOME ]    ");
         break;
+      // ── LIGHT SWITCH mlvl2: ON/OFF selector ───────────────
       case 6100:
+        {
+          // Horizontal selector: UP=ON  DOWN=OFF  ENTER=confirm  MENU=cancel
+          // Initial cursor: reflect current relay state
+          uint8_t swSel = (digitalRead(PIN_LiREL) == HIGH) ? 1 : 0; // 0=ON, 1=OFF
+          unsigned long selfDestruct = millis();
+
+          auto drawLightSwitch = [&]() {
+            lcd_set_cursor(0, 0);
+            lcd_print("  Light Switch  ");
+            lcd_set_cursor(1, 0);
+            if (swSel == 0) {
+              lcd_print("[ON] <-  -> OFF ");   // ON selected
+            } else {
+              lcd_print(" ON  <-  ->[OFF]");   // OFF selected
+            }
+          };
+          drawLightSwitch();
+
+          while (1) {
+            wdt_reset();
+            rotaryFunc();
+            unsigned long nowSw = millis();
+
+            if (rotValMinus) {                // UP  → select ON
+              menuLastInput = selfDestruct = nowSw;
+              rotValMinus = 0;
+              swSel = 0;
+              drawLightSwitch();
+            }
+            if (rotValPlus) {                 // DOWN → select OFF
+              menuLastInput = selfDestruct = nowSw;
+              rotValPlus = 0;
+              swSel = 1;
+              drawLightSwitch();
+            }
+            if (rotPush) {                    // ENTER → apply and exit
+              menuLastInput = selfDestruct = nowSw;
+              rotPush = 0;
+              if (swSel == 0) {
+                digitalWrite(PIN_LiREL, HIGH);
+                if (storage.app2Run != 1) { storage.app2Run = 1; savecon(); }
+                iotDataSendVol(true);
+                lcd_set_cursor(0, 0); lcd_print("  Light Switch  ");
+                lcd_set_cursor(1, 0); lcd_print("   Turned  ON   ");
+              } else {
+                digitalWrite(PIN_LiREL, LOW);
+                if (storage.app2Run != 0) { storage.app2Run = 0; savecon(); }
+                iotDataSendVol(true);
+                lcd_set_cursor(0, 0); lcd_print("  Light Switch  ");
+                lcd_set_cursor(1, 0); lcd_print("   Turned OFF   ");
+              }
+              uiFunc(1);         // hold confirmation for 3 s
+              menuUiFunc = 0;
+              uiFunc(0);
+              return;
+            }
+            if (takeMenuPress() || takeModePress()) {  // MENU/MODE → cancel
+              menuLastInput = selfDestruct = nowSw;
+              menuUiFunc = 0;
+              uiFunc(0);
+              return;
+            }
+            if (nowSw - selfDestruct > 30000UL) {      // idle timeout
+              menuUiFunc = 0;
+              uiFunc(0);
+              return;
+            }
+          }
+        }
+        break;
+
+      // ── [HOME] mlvl2: exit menu ────────────────────────────
+      case 7100:
         menuUiFunc = 0;
         uiFunc(0);
         return;

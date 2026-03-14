@@ -1,6 +1,12 @@
 // ================= motor.h =================
 
 // -------- Existing variables (UNCHANGED) --------
+// Remote block reason — set when a remote/app ON command is rejected:
+//   0 = no block (normal)
+//   1 = bypass switch active (PD5 HIGH)
+//   2 = voltage / protection fault active (elst > 0)
+uint8_t remBlockReason = 0;
+
 bool m1StaVars = 0;
 bool m1LastAckSta = 0;
 unsigned long m1OnBuffMillis = 0;
@@ -37,6 +43,8 @@ void m1On() {
 // M1 OFF command (Hardware timer-based)
 // ------------------------------------------------------
 void m1Off() {
+  if (bypassActive) return;   // bypass switch overrides all stop commands
+
   manOffHap = 0;
 
   // Cancel ON immediately

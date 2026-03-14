@@ -62,23 +62,27 @@ void setup() {
   }
  delay(1000);
   if (storage.app2Run) {
-    digitalWrite(PIN_M2ON, HIGH);
+    digitalWrite(PIN_LiREL, HIGH);
   } else {
-    digitalWrite(PIN_M2ON, LOW);
+    digitalWrite(PIN_LiREL, LOW);
   }
 }
 
 void loop() {
+  bypassCheck();               // FIRST: read bypass switch; clears faults and blocks m1Off when HIGH
   //Serial3.println("qqqq");
   motorRelayService();
   readHWSerial();
   RedLedTickerFunc();
   BlueLedTickerFunc();             // BLUE: extinguish LoRa activity flash after 150 ms
+  RemBlockLedFunc();               // Remote block warning LED pattern (200/500 ms, 5 s auto-clear)
   updateCurrentFilter();   // refresh 5-sample MA once per loop; all fault checks use result
-  overLoadCheck();
-  dryRunCheck();
-  openWireCheck();   // Open wire: any phase <= 1A while Iavg > 2A
-  leakageCheck();    // Current imbalance > 30%
+  if (!bypassActive) {
+    overLoadCheck();
+    dryRunCheck();
+    openWireCheck();   // Open wire: any phase <= 1A while Iavg > 2A
+    leakageCheck();    // Current imbalance > 30%
+  }
   emonFunc();
   Simulation();
   motorStaCheck();

@@ -420,8 +420,13 @@ void sx1268Func() {
 
                     SX1268_clearIrqStatus(SX1268_IRQ_ALL);
                     dio1_triggered = false;
-                    radio_state = STATE_IDLE;       // IDLE lets ACK TX go first
-                    break;                          // exit early to process ACK faster
+                    // Preserve STATE_TX_SETUP if rxFunc() queued an immediate reply
+                    // via encryptNTx(). Setting STATE_IDLE here would overwrite it,
+                    // causing the TX to be silently dropped (IDLE → RX_SETUP, not TX).
+                    if (radio_state != STATE_TX_SETUP) {
+                        radio_state = STATE_IDLE;
+                    }
+                    break;
                 }
                 else if (irq_status & SX1268_IRQ_CRC_ERR) {
                     // Continuous RX: radio self-re-arms after CRC error.

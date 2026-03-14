@@ -331,17 +331,36 @@ void readIotSerial() {
               lcd_set_cursor(1, 0);
               lcd_print("    STARTING    ");
             } else if (method == "a1On" && params) {
-              lcd_set_cursor(0, 0);
-              lcd_print(" MOTOR  CONTROL ");
-              lcd_set_cursor(1, 0);
-              lcd_print("  APP :   ON    ");
-              m1On();
-              a1et = 10;
+              // ── App ON block: bypass switch or active fault ─────────────
+              if (bypassActive) {
+                remBlockReason = 1;
+                a1et = 40;
+                lcd_set_cursor(0, 0); lcd_print("  APP  : BLOCK  ");
+                lcd_set_cursor(1, 0); lcd_print(" BYPASS  ACTIVE ");
+                uiFunc(1);
+                iotSerial.println("<{\"TS\":{\"n\":\"40\"}}>");
+              } else if (elst > 0) {
+                remBlockReason = 2;
+                a1et = 41;
+                lcd_set_cursor(0, 0); lcd_print("  APP  : BLOCK  ");
+                lcd_set_cursor(1, 0); lcd_print(" VOLTAGE  FAULT ");
+                uiFunc(1);
+                iotSerial.println("<{\"TS\":{\"n\":\"41\"}}>");
+              } else {
+                // ── Normal app ON ───────────────────────────────────────
+                remBlockReason = 0;
+                lcd_set_cursor(0, 0);
+                lcd_print(" MOTOR  CONTROL ");
+                lcd_set_cursor(1, 0);
+                lcd_print("  APP :   ON    ");
+                m1On();
+                a1et = 10;
 
-              if (storage.modeM1 != 0) {  // fixed logic
-                storage.modeM1 = 0;
-                Serial3.println("mode normal app : on");
-                savecon();
+                if (storage.modeM1 != 0) {  // fixed logic
+                  storage.modeM1 = 0;
+                  Serial3.println("mode normal app : on");
+                  savecon();
+                }
               }
             } else if (method == "a1On" && !params) {
               lcd_set_cursor(0, 0);
@@ -362,7 +381,7 @@ void readIotSerial() {
               lcd_set_cursor(1, 0);
               lcd_print("  APP :   ON    ");
               a1et = 34;
-              digitalWrite(PIN_M2ON, HIGH);
+              digitalWrite(PIN_LiREL, HIGH);
               iotDataSendVol(1);
               wdt_reset();
               delay(1000);
@@ -377,7 +396,7 @@ void readIotSerial() {
               lcd_set_cursor(1, 0);
               lcd_print("  APP :   OFF   ");
               a1et = 35;
-              digitalWrite(PIN_M2ON, LOW);
+              digitalWrite(PIN_LiREL, LOW);
               iotDataSendVol(1);
               wdt_reset();
               delay(1000);

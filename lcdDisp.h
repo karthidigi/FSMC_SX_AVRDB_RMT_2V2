@@ -638,28 +638,49 @@ static void lcd_drawHome() {
 
 static void lcd_drawFault() {
   if (unVolVars || hiVolVars) {
-    // Under / Over voltage: ROW1 = live voltages, ROW2 = compact name + fault timer
+    // Under / Over voltage: ROW0 = live voltages, ROW1 = fault/recovery info
     snprintf(lcd_buf, sizeof(lcd_buf), "V %3d %3d %3d V ", volRY, volYB, volBR);
     lcd_set_cursor(0, 0); lcd_print(lcd_buf);
-    unsigned long elapsed = voltFaultTimerRun ? (millis() - voltFaultStartMs) : 0;
-    unsigned long sec  = elapsed / 1000;
-    unsigned long mins = sec / 60;
-    if (mins > 99) mins = 99;
-    sec %= 60;
-    const char* shortName = unVolVars ? "UNDERVOLT " : "OVERVOLT  ";
-    snprintf(lcd_buf, sizeof(lcd_buf), "%s%02lu:%02lu ", shortName, mins, sec);
+    {
+      unsigned long recovDur = (unsigned long)(atMins + atSec) * 1000UL;
+      unsigned long sec, mins;
+      if (uvRecovering) {
+        unsigned long elapsed = millis() - uvRecovStartMs;
+        unsigned long remain  = (elapsed < recovDur) ? (recovDur - elapsed) : 0;
+        sec = remain / 1000; mins = sec / 60; if (mins > 99) mins = 99; sec %= 60;
+        snprintf(lcd_buf, sizeof(lcd_buf), "UV Recovry %02lu:%02lu", mins, sec);
+      } else if (ovRecovering) {
+        unsigned long elapsed = millis() - ovRecovStartMs;
+        unsigned long remain  = (elapsed < recovDur) ? (recovDur - elapsed) : 0;
+        sec = remain / 1000; mins = sec / 60; if (mins > 99) mins = 99; sec %= 60;
+        snprintf(lcd_buf, sizeof(lcd_buf), "OV Recovry %02lu:%02lu", mins, sec);
+      } else {
+        unsigned long elapsed = voltFaultTimerRun ? (millis() - voltFaultStartMs) : 0;
+        sec = elapsed / 1000; mins = sec / 60; if (mins > 99) mins = 99; sec %= 60;
+        const char* shortName = unVolVars ? "UNDERVOLT " : "OVERVOLT  ";
+        snprintf(lcd_buf, sizeof(lcd_buf), "%s%02lu:%02lu ", shortName, mins, sec);
+      }
+    }
     lcd_set_cursor(1, 0); lcd_print(lcd_buf);
 
   } else if (phaseFault) {
-    // Phase cut: ROW1 = live voltages, ROW2 = compact name + fault timer
+    // Phase cut: ROW0 = live voltages, ROW1 = fault/recovery info
     snprintf(lcd_buf, sizeof(lcd_buf), "V %3d %3d %3d V ", volRY, volYB, volBR);
     lcd_set_cursor(0, 0); lcd_print(lcd_buf);
-    unsigned long elapsed = phaseFaultTimerRun ? (millis() - phaseFaultStartMs) : 0;
-    unsigned long sec  = elapsed / 1000;
-    unsigned long mins = sec / 60;
-    if (mins > 99) mins = 99;
-    sec %= 60;
-    snprintf(lcd_buf, sizeof(lcd_buf), "PHASE CUT %02lu:%02lu ", mins, sec);
+    {
+      unsigned long sec, mins;
+      if (phRecovering) {
+        unsigned long recovDur = (unsigned long)(atMins + atSec) * 1000UL;
+        unsigned long elapsed  = millis() - phRecovStartMs;
+        unsigned long remain   = (elapsed < recovDur) ? (recovDur - elapsed) : 0;
+        sec = remain / 1000; mins = sec / 60; if (mins > 99) mins = 99; sec %= 60;
+        snprintf(lcd_buf, sizeof(lcd_buf), "PH Recovry %02lu:%02lu", mins, sec);
+      } else {
+        unsigned long elapsed = phaseFaultTimerRun ? (millis() - phaseFaultStartMs) : 0;
+        sec = elapsed / 1000; mins = sec / 60; if (mins > 99) mins = 99; sec %= 60;
+        snprintf(lcd_buf, sizeof(lcd_buf), "PHASE CUT %02lu:%02lu ", mins, sec);
+      }
+    }
     lcd_set_cursor(1, 0); lcd_print(lcd_buf);
 
   } else if (powerLoss) {
@@ -827,6 +848,31 @@ void uiFunc(bool lx) {
     rotValMinus = 0;
     rotPush     = 0;
     return;
+  }
+
+  // ── Bypass switch warning — HIGHEST display priority ─────────────────────
+  // Flash "PASS SWITCH ON! / Turn it OFF!" for 4 s every 30 s while bypass is active.
+  // Outside that 4 s window the normal priority screen is shown unchanged.
+  {
+    static unsigned long bypassFlashStart = 0;
+    if (bypassActive) {
+      unsigned long phase = (bypassFlashStart == 0) ? 30000UL : (now - bypassFlashStart);
+      if (phase >= 30000UL) {
+        // Start a new 30 s cycle now
+        bypassFlashStart = now;
+        phase = 0;
+      }
+      if (phase < 4000UL) {
+        // Show warning for first 4 s of the cycle
+        lcd_set_cursor(0, 0); lcd_print("BYPASS SWITCH ON");
+        lcd_set_cursor(1, 0); lcd_print("  Turn it OFF!  ");
+        lcdDisplayState = 255;   // force normal screen to redraw when flash ends
+        return;
+      }
+      // else: remaining 26 s — fall through to normal display
+    } else {
+      bypassFlashStart = 0;   // reset cycle when bypass goes off
+    }
   }
 
   if (statusScreenActive) {
