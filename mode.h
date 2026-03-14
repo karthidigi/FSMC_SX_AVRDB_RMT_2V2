@@ -358,11 +358,12 @@ void modeM1() {
         }
       }
       if (elst > 0) {
-        laStaRemM1BuffMillis = millis();
-        laStaRemM1Trigd = 0;
+        laStaRemM1BuffMillis  = millis();
+        laStaRemM1Trigd       = 0;
+        laStaRemM1remTrigrd   = 0;   // clear remote-trigger block so fault recovery can restart
       }
       //below code is to trigger if the starter is stopped
-      if (laStaRemM1Trigd && storage.app1Run && !m1StaVars && (millis() - laStaRemM1TrigdMillis >= 3000)) {
+      if (laStaRemM1Trigd && storage.app1Run && !m1StaVars && !m1OffActive && (millis() - laStaRemM1TrigdMillis >= 3000)) {
         a1et = 31;
         m1On();
         Serial3.println("M1-on after 3 sec");

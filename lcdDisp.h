@@ -711,9 +711,9 @@ static void lcd_drawAutoMode() {
   sec  %= 60;
   mins %= 60;
   if (hrs > 0) {
-    snprintf(lcd_buf, sizeof(lcd_buf), "RESTART %02lu:%02lu:%02lu", hrs, mins, sec);
+    snprintf(lcd_buf, sizeof(lcd_buf), "  Start %02lu:%02lu:%02lu", hrs, mins, sec);
   } else {
-    snprintf(lcd_buf, sizeof(lcd_buf), "RESTART IN %02lu:%02lu ", mins, sec);
+    snprintf(lcd_buf, sizeof(lcd_buf), "  Start In %02lu:%02lu ", mins, sec);
   }
   lcd_set_cursor(1, 0); lcd_print(lcd_buf);
 }
@@ -744,7 +744,7 @@ static void lcd_drawLastState() {
   if (hrs2 > 0) {
     snprintf(lcd_buf, sizeof(lcd_buf), "RESTART %02lu:%02lu:%02lu", hrs2, mins2, sec2);
   } else {
-    snprintf(lcd_buf, sizeof(lcd_buf), "  Start In %02lu:%02lu ", mins2, sec2);
+    snprintf(lcd_buf, sizeof(lcd_buf), " Start In %02lu:%02lu ", mins2, sec2);
   }
   lcd_set_cursor(1, 0); lcd_print(lcd_buf);
 }
