@@ -17,6 +17,8 @@ static inline bool isLocalModeChangeGuardActive() {
 
 bool countM1Trigd = 0;
 unsigned long countM1BuffMills = 0;
+bool countM1Init = 0;               // set on first case-3 entry; cleared on expiry
+unsigned long countM1LastTrigMs = 0; // retry timer for motor start in countdown mode
 
 
 unsigned long cyM1BuffMillis = 0;
@@ -52,7 +54,9 @@ void loadModeVal() {
   atMins = String(storage.autoM1).substring(1, 3).toInt() * 60;
   atSec = String(storage.autoM1).substring(3, 5).toInt();
 
-  countM1Trigd = 0;
+  countM1Trigd     = 0;
+  countM1Init      = 0;
+  countM1LastTrigMs = 0;
   countM1BuffMills = millis();
 
   cyclicM1Init = 0;
@@ -67,7 +71,7 @@ void loadModeVal() {
   cyOnMins = String(storage.cyclicM1).substring(3, 5).toInt() * 60;
   cyOffHrs = String(storage.cyclicM1).substring(5, 7).toInt() * 60 * 60;
   cyOffMins = String(storage.cyclicM1).substring(7, 9).toInt() * 60;
-  cyclicM1OnDurMillis = (cyOnHrs + cyOnMins) * 1000 + millis() + 30000;
+  cyclicM1OnDurMillis = (cyOnHrs + cyOnMins) * 1000UL + millis();
   cyclicM1OffDurMillis = (cyOffHrs + cyOffMins) * 1000 + millis();
 
   laStaRemM1Trigd = 0;
@@ -83,30 +87,52 @@ void loadModeVal() {
 }
 
 void modeM1() {
+  // ── Yellow LED control ───────────────────────────────────────────────────────
+  // Normal mode        → OFF
+  // Non-normal, timer  → BLINK  (restart delay / cyclic-OFF waiting)
+  // Non-normal, motor ON or idle → solid ON
+  if (storage.modeM1 == 0) {
+    tickYelLedVars = 0;
+    digitalWrite(PIN_LED_YELLOW, HIGH);   // OFF
+  } else {
+    bool blink = false;
+    if (storage.modeM1 == 1) {
+      // Auto: blink while waiting for the auto-start countdown (pre-trigger, no fault)
+      blink = (!autoM1Trigd && elst == 0);
+    } else if (storage.modeM1 == 2) {
+      // Cyclic: blink during the OFF phase (motor stopped, timer running)
+      blink = (cyclicM1State == 2);
+    } else if (storage.modeM1 == 5) {
+      // Last State: blink while delay timer runs before motor restarts
+      blink = (storage.app1Run && !m1StaVars && !laStaRemM1Trigd);
+    }
+    if (blink) {
+      tickYelLedVars = 1;
+      YellowLedTickerFunc();
+    } else {
+      tickYelLedVars = 0;
+      digitalWrite(PIN_LED_YELLOW, LOW);  // solid ON
+    }
+  }
+
   switch (storage.modeM1) {
     ////////////////////////
     // Normal
     case 0:
       //Serial3.println("M1-NormalMode");
-      digitalWrite(PIN_LED_YELLOW, HIGH);
       break;
 
     ////////////////////////
     // Auto
     case 1:
-      YellowLedTickerFunc();
-
       // Countdown: only count when no fault present and trigger hasn't fired yet.
       if (!autoM1Trigd && elst == 0) {
-        tickYelLedVars = 1;
         if (millis() >= ((atMins + atSec) * 1000UL) + autoM1BuffMillis) {
           m1On();
           a1et = 13;
-          digitalWrite(PIN_LED_YELLOW, LOW);
           atLastTrigdMillis = millis();
           Serial3.println("M1-Auto");
           autoM1Trigd = 1;
-          tickYelLedVars = 0;
         }
       }
 
@@ -138,72 +164,74 @@ void modeM1() {
     ////////////////////////
     // Cyclic
     case 2:
-
-      if (!cyclicM1Init && millis() - cyM1BuffMillis >= 30000) {
+      // One-time init: start motor immediately (spec: "Motor must start immediately after configuration")
+      if (!cyclicM1Init) {
         a1et = 16;
         m1On();
         cyclicM1Init = 1;
         cyclicM1State = 1;
-        //  Serial3.println("Sending counter ON ticks");
-        // iotSerial.println("<{\"TS\":{\"n\":\"15\"}}>");
-        // Serial3.println("<{\"TS\":{\"n\":\"15\"}}>");
+        cyclicM1OnDurMillis = ((cyOnHrs + cyOnMins) * 1000UL) + millis();
+        Serial3.println("M1-Cyclic-Init");
       }
 
       if (cyclicM1State == 1) {
-        //  if (a1et == 16){
-        //   a1et = 18;
-        // Serial3.println("Sending counter Off ticks");
-        // iotSerial.println("<{\"TS\":{\"n\":\"17\"}}>");
-        // Serial3.println("<{\"TS\":{\"n\":\"17\"}}>");
-        // }
         if (millis() >= cyclicM1OnDurMillis) {
           a1et = 18;
           m1Off();
           Serial3.println("M1-Cyclic-OFF");
-          cyclicM1OffDurMillis = ((cyOffHrs + cyOffMins) * 1000) + millis();
+          cyclicM1OffDurMillis = ((cyOffHrs + cyOffMins) * 1000UL) + millis();
           cyclicM1State = 2;
         }
       }
 
       if (cyclicM1State == 2) {
-        // if (a1et == 18){
-        //   a1et = 16;
-        // Serial3.println("Sending counter ON ticks");
-        // iotSerial.println("<{\"TS\":{\"n\":\"15\"}}>");
-        // Serial3.println("<{\"TS\":{\"n\":\"15\"}}>");
-        // }
         if (millis() >= cyclicM1OffDurMillis) {
           a1et = 16;
           m1On();
           Serial3.println("M1-Cyclic-ON");
-          cyclicM1OnDurMillis = ((cyOnHrs + cyOnMins) * 1000) + millis();
+          cyclicM1OnDurMillis = ((cyOnHrs + cyOnMins) * 1000UL) + millis();
           cyclicM1State = 1;
         }
       }
 
       if (elst > 0) {
-        cyM1BuffMillis = millis();
-        cyclicM1Init = 0;
+        // Reset both flags: restart always begins from ON phase after fault clears
+        cyclicM1Init  = 0;
+        cyclicM1State = 0;
       }
 
       break;
     ////////////////////////
     // Countdown
     case 3:
+      // One-time init: start motor and begin countdown timer immediately
+      if (!countM1Init) {
+        a1et = 20;
+        m1On();
+        countM1BuffMills   = millis();
+        countM1Trigd       = 1;
+        countM1Init        = 1;
+        countM1LastTrigMs  = millis();
+        Serial3.println("M1-CountDown-Start");
+      }
 
-      if (countM1Trigd) {
-        if (millis() >= ((cTHrs + cTMins) * 1000) + countM1BuffMills) {
-          a1et = 20;
-          m1Off();
+      // Retry: timer running but motor not yet detected — same 3-second retry as AUTO mode
+      if (countM1Trigd && !m1StaVars && !m1OffActive
+          && (millis() - countM1LastTrigMs >= 3000)) {
+        a1et = 20;
+        m1On();
+        countM1LastTrigMs = millis();
+      }
 
-          Serial3.println("M1-CountDown");
-          countM1Trigd = 0;
-        }
-      } else if (m1StaVars) {
-        countM1BuffMills = millis();
-        countM1Trigd = 1;
-      } else {
-        countM1Trigd = 0;
+      // Timer expiry: stop motor, return to Normal mode
+      if (countM1Trigd && millis() >= ((cTHrs + cTMins) * 1000UL) + countM1BuffMills) {
+        a1et = 20;
+        m1Off();
+        Serial3.println("M1-CountDown-End");
+        countM1Trigd   = 0;
+        countM1Init    = 0;
+        storage.modeM1 = 0;   // spec: "SystemMode = NORMAL_MODE"
+        savecon();
       }
 
       break;
@@ -320,23 +348,13 @@ void modeM1() {
       //   }
       // }
 
-      if (storage.app1Run) {
-        YellowLedTickerFunc();
-      } else {
-        tickYelLedVars = 0;
-      }
-
-
       if (!laStaRemM1Trigd && elst == 0 && storage.app1Run && !m1StaVars && !laStaRemM1remTrigrd) {
-        tickYelLedVars = 1;
         if (millis() >= ((laStaRemMins + laStaRemSec) * 1000) + laStaRemM1BuffMillis) {
           m1On();
           a1et = 31;
           laStaRemM1TrigdMillis = millis();
           Serial3.println("M1-lastRemeber trigerring");
           laStaRemM1Trigd = 1;
-          tickYelLedVars = 0;
-          digitalWrite(PIN_LED_YELLOW, LOW);
         }
       }
       if (elst > 0) {

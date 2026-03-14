@@ -23,6 +23,7 @@
 #include "sx1268Main.h"
 #include "pairNode.h"    // GW-side pairing state machine  (defines: pairNodeTick, enterPairNodeMode)
 #include "pairRemote.h"  // Remote-side pairing + dispatchPairPkt  (defines: pairRemoteTick, enterRemPairMode)
+// #include "userRow.h"  // AVR128DB User Row (DISABLED — uncomment to re-enable USERROW write)
 #include "menu.h"        // LCD menu (after pairing headers so it can access pair state vars)
 #include "iotData.h"
 #include "rfData.h"
@@ -43,6 +44,7 @@ void setup() {
   loadcon();
   loadModeVal();
   getDeviceSerId();
+  // initUserRow();  // USERROW disabled — uncomment together with #include "userRow.h"
   aesInit("[horizon]");
   sx1268Init();
   wdtInit();
@@ -51,7 +53,7 @@ void setup() {
   lcd_set_cursor(0, 0);
   lcd_print("Horizongrid     ");
   lcd_set_cursor(1, 0);
-  lcd_print("FW : 3P2MV2.02  ");
+  lcd_print("+91- 99626 78788");
   // Keep boot splash visible before loop UI refresh starts.
   unsigned long splashStart = millis();
   while (millis() - splashStart < 1500UL) {
@@ -71,8 +73,12 @@ void loop() {
   motorRelayService();
   readHWSerial();
   RedLedTickerFunc();
+  BlueLedTickerFunc();             // BLUE: extinguish LoRa activity flash after 150 ms
+  updateCurrentFilter();   // refresh 5-sample MA once per loop; all fault checks use result
   overLoadCheck();
   dryRunCheck();
+  openWireCheck();   // Open wire: any phase <= 1A while Iavg > 2A
+  leakageCheck();    // Current imbalance > 30%
   emonFunc();
   Simulation();
   motorStaCheck();

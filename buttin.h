@@ -33,9 +33,9 @@ static const uint16_t MODE_CLICK_MAX_MS = 1000;
 static const uint16_t ADC_NONE_MIN = 3900;
 static const uint16_t ADC_MENU_MAX = 400;
 static const uint16_t ADC_UP_CENTER = 832;
-static const uint16_t ADC_DOWN_CENTER = 1658;
-static const uint16_t ADC_ENTER_CENTER = 2477;
-static const uint16_t ADC_MODE_CENTER = 2795;
+static const uint16_t ADC_DOWN_CENTER = 1656;
+static const uint16_t ADC_ENTER_CENTER = 2455;
+static const uint16_t ADC_MODE_CENTER = 3290;
 static const uint16_t ADC_TOL = 220;
 static const uint16_t ADC_HYS = 320;
 

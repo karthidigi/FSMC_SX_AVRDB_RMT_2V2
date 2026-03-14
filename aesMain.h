@@ -159,7 +159,7 @@ bool decryptWithIdx(const char *inHex,
 
   // First 2 hex chars = idx
   uint8_t idx = (fromHexChar(inHex[0]) << 4) | fromHexChar(inHex[1]);
-  DEBUG_PRINTN(idx);
+  //DEBUG_PRINTN(idx);
 
   const char *cipherHex = inHex + 2;
 

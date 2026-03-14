@@ -11,6 +11,19 @@
 
 // ========== Globals ==========
 char lcd_buf[17];
+// Display State Machine constants
+#define DISPLAY_HOME        0   // V+I live readings (default)
+#define DISPLAY_FAULT       1   // FAULT / fault name
+#define DISPLAY_AUTO_MODE   2   // AUTO MODE countdown
+#define DISPLAY_LAST_STATE  3   // LAST STATE MODE countdown
+#define DISPLAY_COUNTDOWN   4   // MOTOR STOPS IN countdown
+#define DISPLAY_CYCLIC_ON   5   // CYCLIC MODE ON remaining ON time
+#define DISPLAY_CYCLIC_OFF  6   // CYCLIC MODE OFF remaining OFF time
+
+// File-scope statics - allow external code to force a redraw
+static uint8_t        lcdDisplayState = 255;   // 255 = uninitialised -> force first render
+static unsigned long  lcdDisplayMs    = 0;     // last render timestamp
+
 
 // ========== LCD Functions ==========
 static void lcdPulseEnable() {
@@ -82,76 +95,6 @@ void lcd_print(const char* str) {
   while (*str) lcd_data(*str++);
 }
 
-
-void lcd_clockFunc() {
-  static uint32_t lastUpdate = 0;
-  uint32_t now = millis();
-
-  if (now - lastUpdate >= 1000) {
-
-    rtcFetchTimeFunc();
-    snprintf(lcd_buf, sizeof(lcd_buf), "  %02d-%02d-%02d %s   ", tDate, tMonth, tYear, sDoW);
-    lcd_set_cursor(0, 0);
-    lcd_print(lcd_buf);
-
-    snprintf(lcd_buf, sizeof(lcd_buf), "  %02d:%02d:%02d %s   ", tHrs, tMin, tSec, tAmPm);
-    lcd_set_cursor(1, 0);
-    lcd_print(lcd_buf);
-
-    lastUpdate = now;
-  }
-}
-
-void lcd_PowFunc() {
-  static unsigned long timerMillis1 = 0;
-  if (millis() - timerMillis1 > 500) {
-    ////////////////////////////////////////////////////////
-    snprintf(lcd_buf, sizeof(lcd_buf), "V %3d %3d %3d V ", volRY, volYB, volBR);
-    lcd_set_cursor(0, 0);
-    lcd_print(lcd_buf);
-    ///////////////////////////////////////////////////////
-    if (powerLoss) {
-      lcd_set_cursor(0, 0);
-      lcd_print("V  0    0    0 ");
-      lcd_set_cursor(1, 0);
-      lcd_print("   POWER LOSS!    ");
-    } else if (phaseFault) {
-      lcd_set_cursor(1, 0);
-      lcd_print("  PHASE FAULT!    ");
-    } else if (unVolVars) {
-      lcd_set_cursor(1, 0);
-      lcd_print(" UNDER VOLTAGE!  ");
-    } else if (hiVolVars) {
-      lcd_set_cursor(1, 0);
-      lcd_print(" OVER VOLTAGE!   ");
-    } else {
-      char bufR[8], bufY[8], bufBM1[8];
-      if (curR <= 0.5) {
-        strcpy(bufR, " 0.0");
-      } else {
-        dtostrf(curR, 4, 1, bufR);  // width=4: handles "11.4" without truncation
-      }
-
-      if (curY <= 0.5) {
-        strcpy(bufY, " 0.0");
-      } else {
-        dtostrf(curY, 4, 1, bufY);
-      }
-
-      if (curBM1 <= 0.5) {
-        strcpy(bufBM1, " 0.0");
-      } else {
-        dtostrf(curBM1, 4, 1, bufBM1);
-      }
-
-      // "I%s %s %sA" = 1+4+1+4+1+4+1 = 16 chars exactly
-      snprintf(lcd_buf, sizeof(lcd_buf), "I%s %s %sA", bufR, bufY, bufBM1);
-      lcd_set_cursor(1, 0);
-      lcd_print(lcd_buf);
-    }
-    timerMillis1 = millis();
-  }
-}
 
 void lcd_volPrevShow(bool lx) {
   if (knobRoll || lx) {
@@ -265,9 +208,9 @@ void lcd_activeModeShow() {
         minutes %= 60;
 
         if (hours > 0) {
-          snprintf(lcd_buf, sizeof(lcd_buf), "Start in %02lu:%02lu:%02lu", hours, minutes, seconds);
+          snprintf(lcd_buf, sizeof(lcd_buf), "RESTART%02lu:%02lu:%02lu  ", hours, minutes, seconds);
         } else {
-          snprintf(lcd_buf, sizeof(lcd_buf), "Start in %02lu:%02lu  ", minutes, seconds);
+          snprintf(lcd_buf, sizeof(lcd_buf), "  Start In %02lu:%02lu  ", minutes, seconds);
         }
         lcd_set_cursor(1, 0);
         lcd_print(lcd_buf);
@@ -422,11 +365,11 @@ void lcd_activeModeShow() {
       minutes %= 60;
 
       if (hours > 0) {
-        snprintf(lcd_buf, sizeof(lcd_buf), "START:%02lu:%02lu:%02lu  ", hours, minutes, seconds);
+        snprintf(lcd_buf, sizeof(lcd_buf), "RESTART%02lu:%02lu:%02lu  ", hours, minutes, seconds);
       } else if (minutes > 0) {
-        snprintf(lcd_buf, sizeof(lcd_buf), "START IN:%02lu:%02lu  ", minutes, seconds);
+        snprintf(lcd_buf, sizeof(lcd_buf), "Start In %02lu:%02lu  ", minutes, seconds);
       } else {
-        snprintf(lcd_buf, sizeof(lcd_buf), "START IN : %2lus  ", seconds);
+        snprintf(lcd_buf, sizeof(lcd_buf), "Start In: %2lus  ", seconds);
       }
 
       lcd_set_cursor(1, 0);
@@ -449,6 +392,10 @@ extern int menuPos;
 static bool statusScreenActive = 0;
 static uint8_t statusScreenIndex = 0;
 static unsigned long statusScreenLastInput = 0;
+
+// Live V/I data screen — single screen for Cyclic / Countdown / Scheduler modes
+static bool          liveDataScreenActive = false;
+static unsigned long liveDataLastInput    = 0;
 
 static uint8_t normalizeModeForUi(uint8_t rawMode) {
   int modeVal = (int)rawMode;
@@ -485,6 +432,37 @@ static void openCountdownHotkey() {
   clearNavEvents();
 }
 
+// Forward declarations — these are defined later in this file or in menu.h
+bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int yT);
+void uiFunc(bool lx);
+
+// Direct countdown editor — mirrors case 1410 logic exactly.
+// Called from the status-screen ENTER hotkey so that get2ValFunc() runs
+// immediately without relying on menuUi()/mlvl routing.
+static void invokeCountdownEditor() {
+  int v1 = String(storage.countM1).substring(1, 3).toInt();
+  int v2 = String(storage.countM1).substring(3, 5).toInt();
+  if (get2ValFunc("CounTmr", v1, v2, 'h', 23, 'm', 59)) {
+    // Confirmed — save value and activate Countdown mode
+    storage.modeM1 = 3;
+    markLocalModeChange();
+    char tVal[17];
+    snprintf(tVal, sizeof(tVal), "z%02d%02d", v1, v2);
+    strncpy(storage.countM1, tVal, sizeof(storage.countM1) - 1);
+    storage.countM1[sizeof(storage.countM1) - 1] = '\0';
+    savecon();
+    iotSerial.println("<{\"AT\":{\"a1cTmr\":\"" + String(storage.countM1) + "\"}}>");
+    delay(500);
+    iotSerial.println("<{\"TS\":{\"n\":\"3\"}}>");
+    loadModeVal();
+    uiFunc(1);     // hold "mode changed" display for 3 s non-blocking
+    lcd_modeShow();
+  }
+  // Always close menu and return to home display (cancel path arrives here too)
+  menuUiFunc      = 0;
+  lcdDisplayState = 255;
+}
+
 // ENTER hotkey from Status List → jumps directly to Cyclic ON-duration editor
 static void openCyclicHotkey() {
   menuUiFunc = 1;
@@ -499,22 +477,10 @@ static void openCyclicHotkey() {
 static void toggleNormalAutoMode() {
   uint8_t curMode = normalizeModeForUi(storage.modeM1);
 
-  // Remembers the last active auto mode so HOT KEY can restore it.
-  // Countdown (3) is excluded — it must never be activated via HOT KEY.
-  static uint8_t lastAutoMode = 1;  // default fallback: AUTO START
-
-  uint8_t nextMode;
-
-  if (curMode == 0) {
-    // NORMAL → AUTO: restore last configured auto mode (Countdown excluded)
-    nextMode = lastAutoMode;
-  } else {
-    // AUTO → NORMAL: save current mode (skip Countdown = 3) then go to NORMAL
-    if (curMode != 3) {
-      lastAutoMode = curMode;
-    }
-    nextMode = 0;
-  }
+  // Button logic (fixed):
+  //   Not in Normal → always go to Normal + stop motor
+  //   In Normal     → always go to Auto mode (1)
+  uint8_t nextMode = (curMode == 0) ? 1 : 0;
 
   storage.modeM1 = nextMode;
   markLocalModeChange();
@@ -522,25 +488,19 @@ static void toggleNormalAutoMode() {
   loadModeVal();
 
   if (nextMode == 0) {
-    // Switched to NORMAL MODE: safely stop motor if it is running
-    if (m1StaVars) {
-      m1Off();  // activates M1OFFREL for configured off-latch time
-    }
+    // Switched to NORMAL MODE: stop motor immediately
+    m1Off();
     autoM1Trigd = 0;
 
-  } else if (nextMode == 1) {
+  } else {
     // Switched to AUTO START: stop motor first, then begin countdown delay
-    // autoM1BuffMillis stamped AFTER m1Off() so delay runs from this moment.
     if (m1StaVars) {
       m1Off();
     }
-    autoM1Trigd = 0;
+    autoM1Trigd      = 0;
     autoM1BuffMillis = millis();
     atLastTrigdMillis = 0;
-
   }
-  // Modes 2 (Cyclic), 4 (Schedule), 5 (Last State):
-  // loadModeVal() already reset all timers; each mode's own logic manages motor.
 
   lcd_modeShow();
 }
@@ -636,6 +596,215 @@ static void showStatusScreenItem(uint8_t itemIndex) {
   }
 }
 
+
+// ── Display State Machine helpers ─────────────────────────────────────
+
+static void lcd_formatTimer(char* buf, unsigned long remainMs) {
+  unsigned long sec  = remainMs / 1000;
+  unsigned long mins = sec / 60;
+  unsigned long hrs  = mins / 60;
+  sec  %= 60;
+  mins %= 60;
+  if (hrs > 0) {
+    snprintf(buf, 17, " %02lu:%02lu:%02lu       ", hrs, mins, sec);
+  } else {
+    snprintf(buf, 17, "     %02lu:%02lu      ", mins, sec);
+  }
+}
+
+static const char* lcd_faultNameStr() {
+  // Priority: voltage/phase faults first, then current faults (Open Wire > Overload > Leakage > Dry Run)
+  if (powerLoss)    return "  POWER LOSS    ";
+  if (phaseFault)   return "  PHASE CUT     ";
+  if (unVolVars)    return " UNDER VOLTAGE  ";
+  if (hiVolVars)    return " OVER VOLTAGE   ";
+  if (openWireVars) return "FAULT OPEN WIRE ";
+  if (overloadVars) return "FAULT OVERLOAD  ";
+  if (leakageVars)  return "FAULT LEAKAGE   ";
+  if (dryRunVars)   return "FAULT DRY RUN   ";
+  return "    UNKNOWN     ";
+}
+
+static void lcd_drawHome() {
+  snprintf(lcd_buf, sizeof(lcd_buf), "V %3d %3d %3d V ", volRY, volYB, volBR);
+  lcd_set_cursor(0, 0); lcd_print(lcd_buf);
+  char bR[8], bY[8], bB[8];
+  if (curR   <= 0.5) strcpy(bR, " 0.0"); else dtostrf(curR,   4, 1, bR);
+  if (curY   <= 0.5) strcpy(bY, " 0.0"); else dtostrf(curY,   4, 1, bY);
+  if (curBM1 <= 0.5) strcpy(bB, " 0.0"); else dtostrf(curBM1, 4, 1, bB);
+  snprintf(lcd_buf, sizeof(lcd_buf), "I%s %s %sA", bR, bY, bB);
+  lcd_set_cursor(1, 0); lcd_print(lcd_buf);
+}
+
+static void lcd_drawFault() {
+  if (unVolVars || hiVolVars) {
+    // Under / Over voltage: ROW1 = live voltages, ROW2 = compact name + fault timer
+    snprintf(lcd_buf, sizeof(lcd_buf), "V %3d %3d %3d V ", volRY, volYB, volBR);
+    lcd_set_cursor(0, 0); lcd_print(lcd_buf);
+    unsigned long elapsed = voltFaultTimerRun ? (millis() - voltFaultStartMs) : 0;
+    unsigned long sec  = elapsed / 1000;
+    unsigned long mins = sec / 60;
+    if (mins > 99) mins = 99;
+    sec %= 60;
+    const char* shortName = unVolVars ? "UNDERVOLT " : "OVERVOLT  ";
+    snprintf(lcd_buf, sizeof(lcd_buf), "%s%02lu:%02lu ", shortName, mins, sec);
+    lcd_set_cursor(1, 0); lcd_print(lcd_buf);
+
+  } else if (phaseFault) {
+    // Phase cut: ROW1 = live voltages, ROW2 = compact name + fault timer
+    snprintf(lcd_buf, sizeof(lcd_buf), "V %3d %3d %3d V ", volRY, volYB, volBR);
+    lcd_set_cursor(0, 0); lcd_print(lcd_buf);
+    unsigned long elapsed = phaseFaultTimerRun ? (millis() - phaseFaultStartMs) : 0;
+    unsigned long sec  = elapsed / 1000;
+    unsigned long mins = sec / 60;
+    if (mins > 99) mins = 99;
+    sec %= 60;
+    snprintf(lcd_buf, sizeof(lcd_buf), "PHASE CUT %02lu:%02lu ", mins, sec);
+    lcd_set_cursor(1, 0); lcd_print(lcd_buf);
+
+  } else if (powerLoss) {
+    // Power loss: ROW1 = live voltages, ROW2 = fault name only (no timer)
+    snprintf(lcd_buf, sizeof(lcd_buf), "V %3d %3d %3d V ", volRY, volYB, volBR);
+    lcd_set_cursor(0, 0); lcd_print(lcd_buf);
+    lcd_set_cursor(1, 0); lcd_print("  POWER LOSS    ");
+
+  } else {
+    // Current fault (overload / dry run): ROW1 = fault name, ROW2 = phase currents
+    lcd_set_cursor(0, 0); lcd_print(lcd_faultNameStr());
+    char bR[8], bY[8], bB[8];
+    if (curR   <= 0.5) strcpy(bR, " 0.0"); else dtostrf(curR,   4, 1, bR);
+    if (curY   <= 0.5) strcpy(bY, " 0.0"); else dtostrf(curY,   4, 1, bY);
+    if (curBM1 <= 0.5) strcpy(bB, " 0.0"); else dtostrf(curBM1, 4, 1, bB);
+    snprintf(lcd_buf, sizeof(lcd_buf), "I%s %s %sA", bR, bY, bB);
+    lcd_set_cursor(1, 0); lcd_print(lcd_buf);
+  }
+}
+
+static void lcd_drawAutoMode() {
+  unsigned long target = ((atMins + atSec) * 1000UL) + autoM1BuffMillis;
+  unsigned long remain = (millis() < target) ? (target - millis()) : 0;
+  lcd_set_cursor(0, 0); lcd_print("   AUTO MODE    ");
+  unsigned long sec  = remain / 1000;
+  unsigned long mins = sec / 60;
+  unsigned long hrs  = mins / 60;
+  sec  %= 60;
+  mins %= 60;
+  if (hrs > 0) {
+    snprintf(lcd_buf, sizeof(lcd_buf), "RESTART %02lu:%02lu:%02lu", hrs, mins, sec);
+  } else {
+    snprintf(lcd_buf, sizeof(lcd_buf), "RESTART IN %02lu:%02lu ", mins, sec);
+  }
+  lcd_set_cursor(1, 0); lcd_print(lcd_buf);
+}
+
+static void lcd_drawLastState() {
+  if (laStaAppStaSavShow) {
+    static unsigned long savMs = 0;
+    if (savMs == 0) {
+      lcd_set_cursor(0, 0); lcd_print("  SAVING STATE  ");
+      lcd_set_cursor(1, 0);
+      lcd_print(storage.app1Run ? "MOTOR is Running" : "MOTOR is Stopped");
+      savMs = millis(); if (!savMs) savMs = 1;
+    }
+    if (millis() - savMs >= 1000) {
+      laStaAppStaSavShow = 0; savMs = 0; wdt_reset();
+      lcdDisplayState = 255;   // force full redraw after notification
+    }
+    return;
+  }
+  unsigned long target = ((laStaRemMins + laStaRemSec) * 1000UL) + laStaRemM1BuffMillis;
+  unsigned long remain = (millis() < target) ? (target - millis()) : 0;
+  lcd_set_cursor(0, 0); lcd_print("LAST STATE MODE ");
+  unsigned long sec2  = remain / 1000;
+  unsigned long mins2 = sec2 / 60;
+  unsigned long hrs2  = mins2 / 60;
+  sec2  %= 60;
+  mins2 %= 60;
+  if (hrs2 > 0) {
+    snprintf(lcd_buf, sizeof(lcd_buf), "RESTART %02lu:%02lu:%02lu", hrs2, mins2, sec2);
+  } else {
+    snprintf(lcd_buf, sizeof(lcd_buf), "  Start In %02lu:%02lu ", mins2, sec2);
+  }
+  lcd_set_cursor(1, 0); lcd_print(lcd_buf);
+}
+
+static void lcd_drawCountdown() {
+  unsigned long endMs  = ((cTHrs + cTMins) * 1000UL) + countM1BuffMills;
+  unsigned long remain = (millis() < endMs) ? (endMs - millis()) : 0;
+  lcd_set_cursor(0, 0); lcd_print("MOTOR STOPS IN  ");
+  lcd_formatTimer(lcd_buf, remain);
+  lcd_set_cursor(1, 0); lcd_print(lcd_buf);
+}
+
+static void lcd_drawCyclicOn() {
+  unsigned long remain = (millis() < cyclicM1OnDurMillis) ? (cyclicM1OnDurMillis - millis()) : 0;
+  lcd_set_cursor(0, 0); lcd_print("CYCLIC MODE ON  ");
+  lcd_formatTimer(lcd_buf, remain);
+  lcd_set_cursor(1, 0); lcd_print(lcd_buf);
+}
+
+static void lcd_drawCyclicOff() {
+  unsigned long remain = (millis() < cyclicM1OffDurMillis) ? (cyclicM1OffDurMillis - millis()) : 0;
+  lcd_set_cursor(0, 0); lcd_print("CYCLIC MODE OFF ");
+  lcd_formatTimer(lcd_buf, remain);
+  lcd_set_cursor(1, 0); lcd_print(lcd_buf);
+}
+
+// ── Live data screen (Cyclic / Countdown / Scheduler) ────────────────────────
+static void lcd_drawLiveData() {
+  snprintf(lcd_buf, sizeof(lcd_buf), "V %3d %3d %3d V ", volRY, volYB, volBR);
+  lcd_set_cursor(0, 0); lcd_print(lcd_buf);
+  char bR[8], bY[8], bB[8];
+  if (curR   <= 0.5) strcpy(bR, " 0.0"); else dtostrf(curR,   4, 1, bR);
+  if (curY   <= 0.5) strcpy(bY, " 0.0"); else dtostrf(curY,   4, 1, bY);
+  if (curBM1 <= 0.5) strcpy(bB, " 0.0"); else dtostrf(curBM1, 4, 1, bB);
+  snprintf(lcd_buf, sizeof(lcd_buf), "I%s %s %sA", bR, bY, bB);
+  lcd_set_cursor(1, 0); lcd_print(lcd_buf);
+}
+
+static void lcdDisplayStateMachine() {
+  unsigned long now = millis();
+
+  uint8_t ds;
+  bool faultActive = (elst > 0 || overloadVars || dryRunVars || openWireVars || leakageVars);
+
+  if (faultActive) {
+    ds = DISPLAY_FAULT;
+  } else if (storage.modeM1 == 1 && !autoM1Trigd && !m1StaVars
+             && now < ((atMins + atSec) * 1000UL) + autoM1BuffMillis) {
+    ds = DISPLAY_AUTO_MODE;
+  } else if (storage.modeM1 == 5 && !m1StaVars && storage.app1Run && !laStaRemM1Trigd
+             && now < ((laStaRemMins + laStaRemSec) * 1000UL) + laStaRemM1BuffMillis) {
+    ds = DISPLAY_LAST_STATE;
+  } else if (storage.modeM1 == 3 && m1StaVars) {
+    ds = DISPLAY_COUNTDOWN;
+  } else if (storage.modeM1 == 2 && cyclicM1State == 1) {
+    ds = DISPLAY_CYCLIC_ON;
+  } else if (storage.modeM1 == 2 && cyclicM1State == 2) {
+    ds = DISPLAY_CYCLIC_OFF;
+  } else {
+    ds = DISPLAY_HOME;
+  }
+
+  if (laStaAppStaSavShow) {
+    ds = DISPLAY_LAST_STATE;
+  }
+
+  if (ds != lcdDisplayState || (now - lcdDisplayMs >= 1000UL)) {
+    lcdDisplayState = ds;
+    lcdDisplayMs    = now;
+    switch (ds) {
+      case DISPLAY_HOME:       lcd_drawHome();       break;
+      case DISPLAY_FAULT:      lcd_drawFault();      break;
+      case DISPLAY_AUTO_MODE:  lcd_drawAutoMode();   break;
+      case DISPLAY_LAST_STATE: lcd_drawLastState();  break;
+      case DISPLAY_COUNTDOWN:  lcd_drawCountdown();  break;
+      case DISPLAY_CYCLIC_ON:  lcd_drawCyclicOn();   break;
+      case DISPLAY_CYCLIC_OFF: lcd_drawCyclicOff();  break;
+    }
+  }
+}
+
 void uiFunc(bool lx) {
   static unsigned long blockUntil = 0;
   unsigned long now = millis();
@@ -664,7 +833,7 @@ void uiFunc(bool lx) {
     if ((now - statusScreenLastInput) >= 15000UL) {
       statusScreenActive = 0;
       clearNavEvents();
-      lcd_activeModeShow();
+      lcdDisplayState = 255;   // force immediate redraw via state machine
       return;
     }
 
@@ -686,12 +855,12 @@ void uiFunc(bool lx) {
 
     bool modePressed = takeModePress();
 
-    // ENTER (rotPush) in Status List → jump to Cyclic Mode ON-duration editor
+    // ENTER (rotPush) in Status List → open Countdown timer editor directly
     if (rotPush) {
       rotPush = 0;
       statusScreenActive = 0;
       clearNavEvents();
-      openCyclicHotkey();
+      invokeCountdownEditor();   // runs get2ValFunc() inline — no menuUi routing needed
       return;
     }
 
@@ -702,7 +871,7 @@ void uiFunc(bool lx) {
         toggleNormalAutoMode();
         blockUntil = millis() + 1200;
       } else {
-        lcd_activeModeShow();
+        lcdDisplayState = 255;   // let state machine redraw on next call
       }
       return;
     }
@@ -729,6 +898,44 @@ void uiFunc(bool lx) {
     return;
   }
 
+  // ── Live data screen (Cyclic / Countdown / Scheduler modes) ─────────────────
+  if (liveDataScreenActive) {
+    // 30-second idle timeout — dismiss and return to mode status
+    if ((now - liveDataLastInput) >= 30000UL) {
+      liveDataScreenActive = false;
+      clearNavEvents();
+      lcdDisplayState = 255;
+      return;
+    }
+
+    // UP / DOWN resets the idle timer (screen stays visible)
+    if (rotValPlus || rotValMinus) {
+      rotValPlus      = 0;
+      rotValMinus     = 0;
+      liveDataLastInput = now;
+    }
+
+    // MENU or MODE press → exit live data screen
+    bool modeP = takeModePress();
+    if (takeMenuPress() || modeP) {
+      liveDataScreenActive = false;
+      clearNavEvents();
+      lcdDisplayState = 255;
+      return;
+    }
+
+    if (rotPush) { rotPush = 0; }   // consume, no action
+
+    // Refresh live V/I values every 1 s
+    static unsigned long liveRefreshMs = 0;
+    if (lcdDisplayState == 255 || (now - liveRefreshMs) >= 1000UL) {
+      lcdDisplayState = 254;   // sentinel: liveData owns the display
+      liveRefreshMs   = now;
+      lcd_drawLiveData();
+    }
+    return;
+  }
+
   if (takeModePress()) {
     toggleNormalAutoMode();
     blockUntil = millis() + 1200;
@@ -741,19 +948,31 @@ void uiFunc(bool lx) {
   }
 
   if (rotPush) {
-    rotPush = 0;  // Countdown hotkey removed; consume input without action
+    rotPush = 0;
+    invokeCountdownEditor();   // ENTER hotkey: open countdown timer editor directly
+    return;
   }
 
   if (rotValPlus || rotValMinus) {
-    rotValPlus = 0;
+    uint8_t curMode = normalizeModeForUi(storage.modeM1);
+    rotValPlus  = 0;
     rotValMinus = 0;
-    statusScreenActive = 1;
-    statusScreenIndex = 0;
-    statusScreenLastInput = now;
-    showStatusScreenItem(statusScreenIndex);
+    if (curMode == 2 || curMode == 3 || curMode == 4) {
+      // Cyclic / Countdown / Scheduler → live V/I data screen
+      liveDataScreenActive = true;
+      liveDataLastInput    = now;
+      lcdDisplayState      = 255;
+      lcd_drawLiveData();
+    } else {
+      // All other modes → settings status list
+      statusScreenActive    = 1;
+      statusScreenIndex     = 0;
+      statusScreenLastInput = now;
+      showStatusScreenItem(statusScreenIndex);
+    }
     return;
   }
-  lcd_PowFunc();
+  lcdDisplayStateMachine();
 }
 
 

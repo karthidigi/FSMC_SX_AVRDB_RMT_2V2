@@ -2,14 +2,14 @@
 // sx1268Main.h – SX1268 LoRa Radio Driver
 // Replaces: llcc68Main.h
 // =============================================
-// Configuration: SF12, BW250, CR4/8, Preamble=16, Sync=0x1424 (private)
-// Frequency: 867 MHz,  TX Power: 22 dBm
-// Expected Range: ~8–12 km (line of sight, optimal conditions)
-// Time-on-Air: ~1380 ms per 32-byte packet   (SF10: ~345 ms)
-// Data Rate: ~98 bps                         (SF10: ~390 bps)
+// Operational channel: SF11/BW125/CR4-5/Preamble=12/Sync=0x3444/22dBm (LDRO=1)
+// Pairing channel   : SF7 /BW125/CR4-5/Preamble=8 /Sync=0x1234/14dBm (LDRO=0)
+// Frequency: 900 MHz,  TX Power: 22 dBm
+// SF11+BW125 Time-on-Air: ~1053 ms per 32-byte packet (SF=11,BW=125,CR=4/5,pre=12,PL=32,LDRO=1)
+// SF11+BW125 Data Rate  : ~54 bps  |  Expected Range: ~10–15 km (line of sight)
 //
 // Unlike LLCC68, SX1268 supports all SF/BW combinations.
-// SF12: symbol time 16.4 ms → LDRO must be ON.
+// SF11: symbol time 16.4 ms → LDRO must be ON.
 //
 // TCXO: disabled by default (same as previous LLCC68 setup).
 //   If your SX1268 module has a TCXO on DIO3, uncomment the
@@ -53,12 +53,17 @@ static uint8_t radioBuf[32];        // shared TX/RX buffer
 #define payload     radioBuf        // alias for TX
 #define bufferRadio radioBuf        // alias for RX
 
-static unsigned long state_start_time  = 0;
-static const unsigned long TX_TIMEOUT_MS   = 5000UL;   // SF11/BW125 ToA ~2.5s + margin
-static const unsigned long WATCHDOG_PERIOD = 120000UL;
+static unsigned long state_start_time    = 0;
+static unsigned long last_radio_activity = 0;  // updated on any DIO1 IRQ; drives watchdog
+static const unsigned long TX_TIMEOUT_MS   = 5000UL;   // SF11/BW125 ToA ~1.1 s + 3.9 s margin
+static const unsigned long WATCHDOG_PERIOD = 90000UL;  // 60 s — see watchdog note below
 
 static RadioState radio_state     = STATE_IDLE;
 static volatile bool stop_transmission = false;
+// true while on pair channel (0x1234); false in operational mode (0x3444).
+// Gates the pairing-packet byte-range check in STATE_RX_WAIT to prevent
+// AES-encrypted operational packets from being misrouted to dispatchPairPkt().
+static bool pairing_mode = false;
 
 // ────────────────────────────────────────────────
 // ISR – PORTC (PC4 = SX1268_DIO1 rising edge)
@@ -120,6 +125,7 @@ void switchToPairChannel() {
     dio1_triggered   = false;
     radio_state      = STATE_IDLE;
     state_start_time = millis();
+    pairing_mode     = true;   // pairing packets (0x0A-0x0F) now expected
     DEBUG_PRINTN("Radio: switched to PAIR channel (SF7/BW125/0x1234)");
 }
 
@@ -152,6 +158,7 @@ void switchToOperationalChannelParams(uint8_t sf, uint8_t bw, uint8_t cr, uint16
     dio1_triggered   = false;
     radio_state      = STATE_IDLE;
     state_start_time = millis();
+    pairing_mode     = false;  // operational: AES-encrypted packets only
     DEBUG_PRINT("Radio: switched to OPER channel sf=");
     DEBUG_PRINT(sf);
     DEBUG_PRINT(" bw=");
@@ -204,7 +211,8 @@ void sx1268Init() {
     SX1268_setRegulatorMode(SX1268_REGULATOR_DC_DC);
     DEBUG_PRINTN("DC-DC OK");
 
-    // Image calibration for 863–870 MHz band (covers 867 MHz)
+    // Image calibration for 902–928 MHz band (covers 900 MHz)
+    // SX1268_calibrateImage(SX1268_CAL_IMG_902, SX1268_CAL_IMG_928);
     SX1268_calibrateImage(SX1268_CAL_IMG_863, SX1268_CAL_IMG_870);
     DEBUG_PRINTN("Img Cal OK");
 
@@ -216,9 +224,13 @@ void sx1268Init() {
     SX1268_setPacketType(SX1268_LORA_MODEM);
     DEBUG_PRINTN("LoRa OK");
 
-    // Frequency: 867 MHz
-    uint32_t rfFreq = ((uint64_t)867000000UL << SX1268_RF_FREQUENCY_SHIFT)
-                      / SX1268_RF_FREQUENCY_XTAL;
+    // Frequency: 900 MHz
+// Before
+// uint32_t rfFreq = ((uint64_t)900000000UL << SX1268_RF_FREQUENCY_SHIFT) / SX1268_RF_FREQUENCY_XTAL;
+
+// After
+uint32_t rfFreq = ((uint64_t)867000000UL << SX1268_RF_FREQUENCY_SHIFT) / SX1268_RF_FREQUENCY_XTAL;
+
     SX1268_setRfFrequency(rfFreq);
     DEBUG_PRINTN("867 MHz OK");
 
@@ -279,6 +291,7 @@ void sx1268Init() {
     state_start_time  = millis();
     stop_transmission = false;
     dio1_triggered    = false;
+    last_radio_activity = millis();   // seed watchdog so it doesn't fire immediately
 
     DEBUG_PRINTN("SX1268 Init Complete!");
 }
@@ -287,14 +300,15 @@ void sx1268Init() {
 // State machine (called every loop iteration)
 // ────────────────────────────────────────────────
 void sx1268Func() {
-    static unsigned long last_radio_activity = millis();
+    // last_radio_activity is file-scope (declared above) so sx1268Init() can seed it.
 
     switch (radio_state) {
 
         case STATE_IDLE:
             // Immediately transition to RX; minimises time radio is not listening
             radio_state = STATE_RX_SETUP;
-            last_radio_activity = millis();
+            // Do NOT update last_radio_activity here — only DIO1 IRQ events prove
+            // the radio hardware is alive; state-machine transitions do not.
             break;
 
         case STATE_TX_SETUP: {
@@ -321,12 +335,14 @@ void sx1268Func() {
 
         case STATE_TX_WAIT: {
             if (dio1_triggered) {
+                last_radio_activity = millis(); // TX Done IRQ also proves radio is alive
                 uint16_t irq_status;
                 SX1268_getIrqStatus(&irq_status);
                 DEBUG_PRINT("TX Done IRQ status=0x");
                 DEBUG_PRINTN(irq_status, HEX);
                 SX1268_clearIrqStatus(SX1268_IRQ_ALL);
                 dio1_triggered = false;
+                blueLedFlash();                  // BLUE: TX complete
                 radio_state      = STATE_RX_SETUP;
                 state_start_time = millis();
             } else if (millis() - state_start_time >= TX_TIMEOUT_MS) {
@@ -350,6 +366,9 @@ void sx1268Func() {
 
         case STATE_RX_WAIT: {
             if (dio1_triggered) {
+                // Any IRQ (valid, CRC error, header error, timeout) proves the radio
+                // hardware is alive and the DIO1 ISR is working — reset the watchdog.
+                last_radio_activity = millis();
                 uint16_t irq_status;
                 SX1268_getIrqStatus(&irq_status);
                 DEBUG_PRINT("RX IRQ status=0x");
@@ -359,6 +378,7 @@ void sx1268Func() {
                 // Only process when RX_DONE is set AND no CRC error.
                 if ((irq_status & SX1268_IRQ_RX_DONE) &&
                     !(irq_status & SX1268_IRQ_CRC_ERR)) {
+                    blueLedFlash();                  // BLUE: valid packet received
                     uint8_t rx_length, rx_start;
                     SX1268_getRxBufferStatus(&rx_length, &rx_start);
                     SX1268_fixRxTimeout();          // SX126x errata: clear stale RTC
@@ -377,9 +397,14 @@ void sx1268Func() {
                         DEBUG_PRINT(F(" len="));
                         DEBUG_PRINTN(rx_length);
 
-                        // Binary pairing packets (0x0A-0x0F) bypass AES.
-                        // AES-encrypted hex always starts 0x30-0x46 → unambiguous.
-                        if (rx_buffer[0] >= PKT_PAIR_REQ &&
+                        // Pairing packets (0x0A-0x0F) only expected on the pair
+                        // channel (sync=0x1234, pairing_mode=true). In operational
+                        // mode (sync=0x3444) the radio cannot receive pairing packets,
+                        // so all packets are AES-encrypted. Without this guard an
+                        // encrypted ACK whose first byte is 0x0A-0x0F would be silently
+                        // misrouted to dispatchPairPkt() and rxFunc() would never run.
+                        if (pairing_mode &&
+                            rx_buffer[0] >= PKT_PAIR_REQ &&
                             rx_buffer[0] <= PKT_REM_PAIR_DONE) {
                             DEBUG_PRINT(F("→ PAIR pkt 0x"));
                             DEBUG_PRINTN(rx_buffer[0], HEX);
@@ -396,16 +421,31 @@ void sx1268Func() {
                     SX1268_clearIrqStatus(SX1268_IRQ_ALL);
                     dio1_triggered = false;
                     radio_state = STATE_IDLE;       // IDLE lets ACK TX go first
-                    last_radio_activity = millis();
                     break;                          // exit early to process ACK faster
                 }
                 else if (irq_status & SX1268_IRQ_CRC_ERR) {
+                    // Continuous RX: radio self-re-arms after CRC error.
+                    // Apply errata fix, clear IRQ, stay in STATE_RX_WAIT.
+                    // Re-issuing SetRx (STATE_RX_SETUP) would create a deaf gap
+                    // and cause cascading failures at range boundary.
                     DEBUG_PRINTN("RX CRC Error");
+                    SX1268_fixRxTimeout();
+                    SX1268_clearIrqStatus(SX1268_IRQ_ALL);
+                    dio1_triggered = false;
+                    // radio_state stays STATE_RX_WAIT
+                    break;
                 }
                 else if (irq_status & SX1268_IRQ_HEADER_ERR) {
+                    // Continuous RX: radio self-re-arms after header error.
                     DEBUG_PRINTN("RX Header Error");
+                    SX1268_clearIrqStatus(SX1268_IRQ_ALL);
+                    dio1_triggered = false;
+                    // radio_state stays STATE_RX_WAIT
+                    break;
                 }
                 else if (irq_status & SX1268_IRQ_TIMEOUT) {
+                    // Timeout should not occur in continuous RX (0xFFFFFF).
+                    // If it does, the radio exited RX — must re-issue SetRx.
                     DEBUG_PRINTN("RX Timeout IRQ");
                 }
 
@@ -413,9 +453,13 @@ void sx1268Func() {
                 dio1_triggered = false;
                 radio_state = STATE_RX_SETUP;
             } else {
-                // Continuous RX with no traffic is valid; keep watchdog from
-                // forcing periodic re-init and profile loss.
-                last_radio_activity = millis();
+                // Continuous RX — no IRQ yet. Do NOT update last_radio_activity here.
+                // Watchdog note: last_radio_activity is updated only when DIO1 fires
+                // (any IRQ event). If no IRQ fires for WATCHDOG_PERIOD (60 s) the
+                // radio is considered stuck and a full re-init is triggered below.
+                // In normal operation the continuous-RX radio fires DIO1 on every
+                // received packet (valid or noise), so 60 s of silence means the
+                // radio or its ISR has locked up.
             }
             break;
         }

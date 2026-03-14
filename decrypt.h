@@ -61,8 +61,12 @@ static inline bool extractCommandFromPlain(const char* plain) {
   return false;
 }
 
-static inline void decryptData(const uint8_t* rx_buf, uint8_t rx_len) {
-  if (rx_len == 0 || rx_len > 64) return;
+// Returns true only when a valid command was extracted into encapData.
+// Always clears encapData first to prevent stale-command dispatch.
+static inline bool decryptData(const uint8_t* rx_buf, uint8_t rx_len) {
+  encapData[0] = '\0';   // clear before every attempt
+
+  if (rx_len == 0 || rx_len > 64) return false;
 
   char hexBuf[65];
   uint8_t copyLen = (rx_len < (sizeof(hexBuf) - 1)) ? rx_len : (sizeof(hexBuf) - 1);
@@ -70,12 +74,12 @@ static inline void decryptData(const uint8_t* rx_buf, uint8_t rx_len) {
   hexBuf[copyLen] = '\0';
 
   size_t hexLen = strlen(hexBuf);
-  if (hexLen < 2) return;
+  if (hexLen < 2) return false;
 
-  // Plaintext compatibility fallback (for legacy remotes without AES frame).
+  // Plaintext compatibility fallback (legacy remotes without AES frame).
   if (extractCommandFromPlain(hexBuf)) {
-    DEBUG_PRINTN(F("Plain RX fallback"));
-    return;
+    DEBUG_PRINTN(F("Plain RX"));
+    return true;
   }
 
   char selfSerial[21];
@@ -85,13 +89,13 @@ static inline void decryptData(const uint8_t* rx_buf, uint8_t rx_len) {
   char plain[MAX_MESSAGE_LEN + 1];
   plain[0] = '\0';
 
-  // Format A: [idx][rnd][idx+cipher] (current starter TX layout)
+  // Format A: [idx(2)][rnd(4)][idx(2)+cipher] — current remote TX layout
   if (!ok && hexLen >= 6) {
     uint16_t rnd = parseHex16(hexBuf + 2);
     ok = decryptTryFrame(hexBuf + 6, rnd, selfSerial, plain, sizeof(plain));
   }
 
-  // Format B: [idx][rnd][cipher] (single idx only)
+  // Format B: [idx(2)][rnd(4)][cipher] — single idx prefix
   if (!ok && hexLen >= 6) {
     uint16_t rnd = parseHex16(hexBuf + 2);
     char inHex[65];
@@ -105,37 +109,40 @@ static inline void decryptData(const uint8_t* rx_buf, uint8_t rx_len) {
     }
   }
 
-  // Format C: [rnd][idx+cipher]
+  // Format C: [rnd(4)][idx(2)+cipher]
   if (!ok && hexLen >= 4) {
     uint16_t rnd = parseHex16(hexBuf);
     ok = decryptTryFrame(hexBuf + 4, rnd, selfSerial, plain, sizeof(plain));
   }
 
-  // Format D: [idx+cipher] with fixed rnd=1
+  // Format D: [idx(2)+cipher] with rnd=1
   if (!ok) {
     ok = decryptTryFrame(hexBuf, 1, selfSerial, plain, sizeof(plain));
   }
 
-  // Format E: [idx][cipher] with fixed rnd=1
+  // Format E: [idx(2)][cipher] with rnd=1
   if (!ok && hexLen >= 2) {
     ok = decryptTryFrame(hexBuf + 2, 1, selfSerial, plain, sizeof(plain));
   }
 
   if (!ok) {
-    DEBUG_PRINT(F("Decrypt failed for RX: "));
-    DEBUG_PRINTN(hexBuf);
-    return;
+    return false;
   }
 
-  DEBUG_PRINT(F("Decrypted: "));
-  DEBUG_PRINTN(plain);
-
+  // AES-CTR always produces output even with wrong key; only trust it if
+  // the plaintext contains a valid [cmd] bracket or a known legacy command.
   if (!extractCommandFromPlain(plain)) {
-    DEBUG_PRINTN(F("Invalid message payload"));
+    return false;
   }
+
+  return true;
 }
 
 void decryptNFunc(const uint8_t* rx_buf, uint8_t rx_len) {
-  decryptData(rx_buf, rx_len);
-  rxFunc();
+  // Only dispatch to rxFunc when a valid command was actually extracted.
+  // Calling rxFunc with empty encapData just floods the log with
+  // "CMD not found received" on every failed/wrong-key packet.
+  if (decryptData(rx_buf, rx_len)) {
+    rxFunc();
+  }
 }

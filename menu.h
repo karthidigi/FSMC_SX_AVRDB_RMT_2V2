@@ -7,6 +7,7 @@ bool mlvl4 = 0;
 
 //bool menuUiFunc = 0;
 int menuPos = 1000;
+unsigned long menuLastInput = 0;  // global idle timer — updated by menuUi() and all sub-menu functions
 
 
 char lcd_buf1[17];
@@ -123,6 +124,7 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
 
     // --- Increment / Decrement ---
     if (rotValPlus || rotValMinus) {
+      menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
       int delta = (rotValMinus ? 1 : -1);
 
       if (t1Selec) {
@@ -138,6 +140,7 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
     }
 
     if (rotPush) {
+      menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
       if (t1Selec) {
         t1Selec = 0;
         t2Selec = 1;
@@ -268,6 +271,7 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
 
     // --- Increment / Decrement ---
     if (rotValPlus || rotValMinus) {
+      menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
       float delta = (rotValMinus ? 0.10 : -0.10);
 
       if (v1Selec) {
@@ -284,6 +288,7 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
     }
 
     if (rotPush) {
+      menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
       if (v1Selec) {
         v1Selec = 0;
         okSelec = 1;
@@ -410,6 +415,7 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
 
     // --- Increment / Decrement ---
     if (rotValPlus || rotValMinus) {
+      menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
       int delta = (rotValMinus ? 10 : -10);
 
       if (v1Selec) {
@@ -425,6 +431,7 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
     }
 
     if (rotPush) {
+      menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
       if (v1Selec) {
         v1Selec = 0;
         okSelec = 1;
@@ -534,6 +541,7 @@ bool get1ValFuncS1(String ValName, uint8_t &v1, char x, int xT, int yT) {
       return 0;
     }
     if (rotValPlus || rotValMinus) {
+      menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
       int delta = (rotValMinus ? 1 : -1);
       if (v1Selec) {
         tVal1 = tVal1 + delta;
@@ -543,9 +551,20 @@ bool get1ValFuncS1(String ValName, uint8_t &v1, char x, int xT, int yT) {
       rotValPlus = rotValMinus = 0;
     }
     if (rotPush) {
-      if (v1Selec) { v1Selec = 0; okSelec = 1; canSelec = 0; }
-      else if (okSelec) { v1Selec = 0; okSelec = 0; canSelec = 1; }
-      else if (canSelec) { v1Selec = 1; okSelec = 0; canSelec = 0; }
+      menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
+      if (v1Selec) {
+        v1Selec = 0;
+        okSelec = 1;
+        canSelec = 0;
+      } else if (okSelec) {
+        v1Selec = 0;
+        okSelec = 0;
+        canSelec = 1;
+      } else if (canSelec) {
+        v1Selec = 1;
+        okSelec = 0;
+        canSelec = 0;
+      }
       rotPush = 0;
     }
     if (millis() - lastmillis > 300) {
@@ -553,7 +572,7 @@ bool get1ValFuncS1(String ValName, uint8_t &v1, char x, int xT, int yT) {
       lastmillis = millis();
       if (v1Selec) {
         if (blinker) snprintf(lcd_buf1, sizeof(lcd_buf1), "%s:       %c ", ValName.c_str(), x);
-        else         snprintf(lcd_buf1, sizeof(lcd_buf1), "%s:  %02d  %c ", ValName.c_str(), tVal1, x);
+        else snprintf(lcd_buf1, sizeof(lcd_buf1), "%s:  %02d  %c ", ValName.c_str(), tVal1, x);
       }
       if (okSelec) {
         snprintf(lcd_buf2, sizeof(lcd_buf2), blinker ? "-> OK     CANCEL" : "   OK     CANCEL");
@@ -564,21 +583,29 @@ bool get1ValFuncS1(String ValName, uint8_t &v1, char x, int xT, int yT) {
     }
     if (!v1Selec) snprintf(lcd_buf1, sizeof(lcd_buf1), "%s:  %02d  %c ", ValName.c_str(), tVal1, x);
     if (!okSelec && !canSelec) snprintf(lcd_buf2, sizeof(lcd_buf2), "   OK     CANCEL");
-    lcd_set_cursor(0, 0); lcd_print(lcd_buf1);
-    lcd_set_cursor(1, 0); lcd_print(lcd_buf2);
+    lcd_set_cursor(0, 0);
+    lcd_print(lcd_buf1);
+    lcd_set_cursor(1, 0);
+    lcd_print(lcd_buf2);
     bpCounter = 0;
     while ((okSelec || canSelec) && isEnterButtonDown()) {
-      wdt_reset(); rotaryFunc(); delay(5);
+      wdt_reset();
+      rotaryFunc();
+      delay(5);
       bpCounter++;
       if (bpCounter >= BPCOUNTER) {
         if (okSelec) {
-          lcd_set_cursor(1, 0); lcd_print("   Applying...  ");
+          lcd_set_cursor(1, 0);
+          lcd_print("   Applying...  ");
           v1 = (uint8_t)tVal1;
-          mainMenuShow(); return 1;
+          mainMenuShow();
+          return 1;
         }
         if (canSelec) {
-          lcd_set_cursor(1, 0); lcd_print(" X  Aborting  X ");
-          mainMenuShow(); return 0;
+          lcd_set_cursor(1, 0);
+          lcd_print(" X  Aborting  X ");
+          mainMenuShow();
+          return 0;
         }
       }
     }
@@ -586,12 +613,12 @@ bool get1ValFuncS1(String ValName, uint8_t &v1, char x, int xT, int yT) {
 }
 
 static int maxMlvl2OffsetForGroup(int groupBase) {
-  if (groupBase == 1000) return 700;   // MODES:        1100..1700
-  if (groupBase == 2000) return 600;   // PRESET:       2100..2600
-  if (groupBase == 3000) return 900;   // SETTINGS:     3100..3900
-  if (groupBase == 4000) return 100;   // CONTACT:      4100
-  if (groupBase == 5000) return 100;   // ABOUT DEVICE: 5100
-  if (groupBase == 6000) return 100;   // [HOME]:       6100
+  if (groupBase == 1000) return 700;  // MODES:        1100..1700
+  if (groupBase == 2000) return 600;  // PRESET:       2100..2600
+  if (groupBase == 3000) return 800;  // SETTINGS:     3100..3800 (factory reset removed)
+  if (groupBase == 4000) return 100;  // CONTACT:      4100
+  if (groupBase == 5000) return 100;  // ABOUT DEVICE: 5100
+  if (groupBase == 6000) return 100;  // [HOME]:       6100
   return 100;
 }
 
@@ -600,13 +627,22 @@ static int maxMlvl3OffsetForHundreds(int hundredsBase) {
 }
 
 static int maxMlvl4OffsetForTens(int tensBase) {
-  return 0;   // mlvl4 not used in current structure
+  return 0;  // mlvl4 not used in current structure
 }
 
 
 
+// ── About Device: static info stored in flash (PROGMEM) ─────────────────────
+// Strings live in flash only — zero RAM cost.
+// __DATE__ is the compiler-injected build date: "Mmm DD YYYY" (always 11 chars).
+static const char PROGMEM about_company[] = "HorizonGrid     ";  // 16 chars
+static const char PROGMEM about_fwver[] = FIRMWARE_VERSION;      // e.g. "AVR128DB48"
+static const char PROGMEM about_mfg_lbl[] = "Manufactured:   ";  // 16 chars
+static const char PROGMEM about_mfg_date[] = __DATE__;           // "Mmm DD YYYY"
+
 void menuUi() {
-  static unsigned long menuLastInput = 0;
+  static uint8_t aboutDevPage = 0;  // current About Device info page (0-1)
+  static int prevMenuPos = -1;      // menuPos at end of previous menuUi() call
 
   if (!menuUiFunc) {
     menuLastInput = 0;
@@ -709,21 +745,13 @@ void menuUi() {
         break;
       case 1100:
         lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
         lcd_print("-> SET NORMAL   ");
         lcd_set_cursor(1, 0);
         lcd_print("   SET AUTO     ");
         break;
       case 1110:
-        lcd_set_cursor(0, 0);
-        //d_print("1234567890123456");
-        lcd_print(" mode change to ");
-        lcd_set_cursor(1, 0);
-        lcd_print("     Normal     ");
-        wdt_reset();
-        delay(3000);
         storage.modeM1 = 0;
-       markLocalModeChange();
+        markLocalModeChange();
         Serial3.print("menu mode normal: ");
         Serial3.println(storage.modeM1);
         savecon();
@@ -769,7 +797,7 @@ void menuUi() {
           if (m1StaVars) {
             m1Off();
           }
-          loadModeVal();                // reloads all mode vars from storage
+          loadModeVal();  // reloads all mode vars from storage
           autoM1Trigd = 0;
           autoM1BuffMillis = millis();  // re-stamp AFTER m1Off() so delay is accurate
           atLastTrigdMillis = 0;
@@ -858,8 +886,8 @@ void menuUi() {
           Serial3.println(var1);
           Serial3.println(var2);
           storage.modeM1 = 3;
-         markLocalModeChange();
-         //////////////////////////////
+          markLocalModeChange();
+          //////////////////////////////
           /////////////////////////////
           // format into val with leading zeros, always 2 digits
           snprintf(tmpVal, sizeof(tmpVal), "z%02d%02d", var1, var2);
@@ -890,20 +918,17 @@ void menuUi() {
 
       case 1510:
         // Schedule mode: show info message, set mode=4, save, exit
+        storage.modeM1 = 4;
+        markLocalModeChange();
+        savecon();
+        loadModeVal();
+        iotSerial.println("<{\"TS\":{\"n\":\"6\"}}>");
         lcd_set_cursor(0, 0);
         lcd_print("To set schedule,");
         lcd_set_cursor(1, 0);
         lcd_print("please use app. ");
-        storage.modeM1 = 4;
-       markLocalModeChange();
-        savecon();
-        loadModeVal();
-        iotSerial.println("<{\"TS\":{\"n\":\"6\"}}>");
-        wdt_reset();
-        delay(3000);
-        uiFunc(1);
+        uiFunc(1);        // hold "please use app" message for 3 s non-blocking
         menuUiFunc = 0;
-        lcd_modeShow();
         break;
 
       case 1600:
@@ -919,7 +944,7 @@ void menuUi() {
         if (get2ValFunc("OnDelay", var1, var2, 'm', 59, 's', 59)) {
           Serial3.println("lastrem applied");
           storage.modeM1 = 5;
-         markLocalModeChange();
+          markLocalModeChange();
           snprintf(tmpVal, sizeof(tmpVal), "z%02d%02d", var1, var2);
           strncpy(storage.lasRemM1, tmpVal, sizeof(storage.lasRemM1) - 1);
           storage.lasRemM1[sizeof(storage.lasRemM1) - 1] = '\0';
@@ -1045,7 +1070,8 @@ void menuUi() {
         lcd_set_cursor(1, 0);
         lcd_print("   [ BACK ]     ");
         break;
-      case 2510: {
+      case 2510:
+        {
           var1 = (int)storage.senseTime;
           if (get1ValFunc("SensTim", var1, 's', 10, 120)) {
             storage.senseTime = (uint16_t)var1;
@@ -1129,34 +1155,44 @@ void menuUi() {
         break;
       case 3700:
         lcd_set_cursor(0, 0);
-        lcd_print("-> FACTORY RESET");
-        lcd_set_cursor(1, 0);
-        lcd_print("   RESET DEVICE ");
-        break;
-      case 3800:
-        lcd_set_cursor(0, 0);
-        lcd_print("   FACTORY RESET");
+        lcd_print("   AI MODE      ");
         lcd_set_cursor(1, 0);
         lcd_print("-> RESET DEVICE ");
         break;
-      case 3900:
+      case 3800:
         lcd_set_cursor(0, 0);
-        lcd_print("-> [ BACK ]     ");
+        lcd_print("   RESET DEVICE ");
         lcd_set_cursor(1, 0);
-        lcd_print("                ");
+        lcd_print("-> [ BACK ]     ");
         break;
 
       // ── SETTINGS mlvl3: DATE & TIME leaf ──────────────────
-      case 3110: {
-          int rtcHH = (int)tHrs, rtcMM = (int)tMin;
+      case 3110:
+        {
+          // HH:MM — get2ValFunc, step-1, range 00-23 / 00-59
+          int rtcHH = constrain((int)tHrs, 0, 23);
+          int rtcMM = constrain((int)tMin, 0, 59);
           if (!get2ValFunc(" Time ", rtcHH, rtcMM, 'h', 23, 'm', 59)) break;
-          int rtcSS = (int)tSec;
-          if (!get1ValFunc("  Secs", rtcSS, 's', 0, 59)) break;
-          int rtcDD = (int)tDate, rtcMON = (int)tMonth;
-          if (!get2ValFunc(" Date ", rtcDD, rtcMON, 'd', 31, 'm', 12)) break;
+
+          // Seconds — get1ValFuncS1, step-1, range 00-59
+          uint8_t rtcSS = (uint8_t)constrain((int)tSec, 0, 59);
+          if (!get1ValFuncS1("  Secs", rtcSS, 's', 0, 59)) break;
+
+          // Date — get1ValFuncS1, step-1, range 01-31 (no zero day)
+          uint8_t rtcDD = (uint8_t)constrain((int)tDate, 1, 31);
+          if (!get1ValFuncS1("  Date", rtcDD, 'd', 1, 31)) break;
+
+          // Month — get1ValFuncS1, step-1, range 01-12 (no zero month)
+          uint8_t rtcMON = (uint8_t)constrain((int)tMonth, 1, 12);
+          if (!get1ValFuncS1(" Month", rtcMON, 'm', 1, 12)) break;
+
+          // Year — get1ValFunc, step-10, range 00-99, default 26 (= 2026)
+          // Accept 25-50 as valid (2025-2050); catches tYear=99 firmware-init and tYear=0 fresh RTC
           int rtcYY = (int)tYear;
+          if (rtcYY < 25 || rtcYY > 50) rtcYY = 26;
           if (!get1ValFunc("  Year", rtcYY, 'y', 0, 99)) break;
-          ds3231_SetDateTime(rtcYY, rtcMON, rtcDD, rtcHH, rtcMM, rtcSS, 1);
+
+          ds3231_SetDateTime(rtcYY, (int)rtcMON, (int)rtcDD, rtcHH, rtcMM, (int)rtcSS, 1);
           rtcFetchTimeFunc();
           lcd_set_cursor(0, 0);
           lcd_print("  RTC Updated!  ");
@@ -1170,40 +1206,66 @@ void menuUi() {
         }
 
       // ── SETTINGS mlvl3: CONFIGURE DEVICE sub-menu ─────────
-      case 3210: {
+      case 3210:
+        {
           // 4-item scrolling sub-menu under "CONFIGURE DEV"
-          static const char* const cfgLabels[4] = {
+          static const char *const cfgLabels[4] = {
             "-> PAIR REMOTE  ",
             "-> PAIR GATEWAY ",
-            "-> CONFIGURE    ",
+            "-> CONFIG WIFI  ",
             "-> [BACK]       "
           };
-          uint8_t cfgSel       = 0;
-          const uint8_t CFG_N  = 4;
-          unsigned long cfgTo  = millis();
+          uint8_t cfgSel = 0;
+          const uint8_t CFG_N = 4;
+          unsigned long cfgTo = millis();
 
           while (1) {
             wdt_reset();
             rotaryFunc();
 
-            if (millis() - cfgTo >= 30000UL)  { mainMenuShow(); break; }
-            if (takeMenuPress())               { mainMenuShow(); break; }
+            if (millis() - cfgTo >= 30000UL) {
+              mainMenuShow();
+              break;
+            }
+            if (takeMenuPress()) {
+              mainMenuShow();
+              break;
+            }
 
-            if (rotValPlus)  { cfgSel = (cfgSel + 1) % CFG_N; rotValPlus  = 0; cfgTo = millis(); }
-            if (rotValMinus) { cfgSel = (cfgSel == 0 ? CFG_N - 1 : cfgSel - 1); rotValMinus = 0; cfgTo = millis(); }
+            if (rotValPlus) {
+              cfgSel = (cfgSel + 1) % CFG_N;
+              rotValPlus = 0;
+              cfgTo = millis();
+            }
+            if (rotValMinus) {
+              cfgSel = (cfgSel == 0 ? CFG_N - 1 : cfgSel - 1);
+              rotValMinus = 0;
+              cfgTo = millis();
+            }
 
-            lcd_set_cursor(0, 0); lcd_print("CONFIGURE DEV   ");
-            lcd_set_cursor(1, 0); lcd_print(cfgLabels[cfgSel]);
+            lcd_set_cursor(0, 0);
+            lcd_print("CONFIGURE DEV   ");
+            lcd_set_cursor(1, 0);
+            lcd_print(cfgLabels[cfgSel]);
 
-            if (!isEnterButtonDown()) { delay(10); continue; }
+            if (!isEnterButtonDown()) {
+              delay(10);
+              continue;
+            }
             // Debounce: hold 500 ms
-            { unsigned long _ps = millis(); while (millis() - _ps < 500UL) { wdt_reset(); delay(5); } }
+            {
+              unsigned long _ps = millis();
+              while (millis() - _ps < 500UL) {
+                wdt_reset();
+                delay(5);
+              }
+            }
             if (!isEnterButtonDown()) continue;
 
             // ── PAIR REMOTE ──────────────────────────────────────────
             if (cfgSel == 0) {
               storage.remote[0] = '\0';
-              storage.rf_locked  = 1;
+              storage.rf_locked = 1;
               savecon();
               enterRemPairMode();  // LCD → "REM PAIRING... scanning..."
               {
@@ -1225,13 +1287,15 @@ void menuUi() {
                   delay(5);
                 }
               }
-              wdt_reset(); delay(2000);
-              mainMenuShow(); break;
+              wdt_reset();
+              delay(2000);
+              mainMenuShow();
+              break;
 
-            // ── PAIR GATEWAY (independent — remote unaffected) ───────
+              // ── PAIR GATEWAY (independent — remote unaffected) ───────
             } else if (cfgSel == 1) {
-              storage.gateway[0] = '\0';   // clear gateway only; remote stays intact
-              storage.rf_locked  = 0;
+              storage.gateway[0] = '\0';  // clear gateway only; remote stays intact
+              storage.rf_locked = 0;
               savecon();
               enterPairNodeMode();  // LCD → "GW  PAIRING... beaconing..."
               {
@@ -1241,39 +1305,59 @@ void menuUi() {
                   wdt_reset();
                   sx1268Func();
                   pairNodeTick();
-                  if (takeMenuPress())                  { cancelled = true; break; }
-                  if (millis() - pairStart >= 90000UL) { cancelled = true; break; }
+                  if (takeMenuPress()) {
+                    cancelled = true;
+                    break;
+                  }
+                  if (millis() - pairStart >= 90000UL) {
+                    cancelled = true;
+                    break;
+                  }
                   delay(5);
                 }
                 if (cancelled) {
                   switchToOperationalChannel();
                   pairNodeState = PAIR_NODE_IDLE;
-                  wdt_reset(); delay(1000);
-                  mainMenuShow(); break;
+                  wdt_reset();
+                  delay(1000);
+                  mainMenuShow();
+                  break;
                 }
               }
-              wdt_reset(); delay(2000);
-              mainMenuShow(); break;
+              wdt_reset();
+              delay(2000);
+              mainMenuShow();
+              break;
 
-            // ── CONFIGURE (send CP serial command) ───────────────────
+              // ── CONFIG WIFI (send CP then reset ESP32) ───────────────
             } else if (cfgSel == 2) {
-              lcd_set_cursor(0, 0); lcd_print(" Configuring... ");
-              lcd_set_cursor(1, 0); lcd_print("  Please wait   ");
+              lcd_set_cursor(0, 0);
+              lcd_print(" Config WiFi... ");
+              lcd_set_cursor(1, 0);
+              lcd_print("  Please wait   ");
               iotSerial.println("<{\"TS\":{\"n\":\"CP\"}}>");
-              Serial3.println("[MENU] Configure Device sent");
-              wdt_reset(); delay(3000);
-              mainMenuShow(); break;
+              Serial3.println("[MENU] Config WiFi sent");
+              wdt_reset();
+              delay(2000);
+              iotSerial.println("@rst");           // restart ESP32 to apply new config
+              Serial3.println("[MENU] ESP32 @rst sent");
+              wdt_reset();
+              delay(1000);
+              mainMenuShow();
+              break;
 
-            // ── [BACK] ───────────────────────────────────────────────
+              // ── [BACK] ───────────────────────────────────────────────
             } else {
-              mainMenuShow(); break;
+              mainMenuShow();
+              break;
             }
           }
           break;
         }
 
       // ── SETTINGS mlvl3: RESET WIFI confirmation ───────────
-      case 3310: {
+      case 3310:
+        {
           bool wfYes = false;
           bool wfBlink = false;
           unsigned long wfLast = millis();
@@ -1283,24 +1367,47 @@ void menuUi() {
           while (1) {
             wdt_reset();
             rotaryFunc();
-            if (millis() - wfTimeout >= 30000UL) { mainMenuShow(); break; }
-            if (takeMenuPress()) { mainMenuShow(); break; }
-            if (rotValPlus || rotValMinus) { wfYes = !wfYes; rotValPlus = rotValMinus = 0; }
-            if (millis() - wfLast >= 400) { wfBlink = !wfBlink; wfLast = millis(); }
+            if (millis() - wfTimeout >= 30000UL) {
+              mainMenuShow();
+              break;
+            }
+            if (takeMenuPress()) {
+              mainMenuShow();
+              break;
+            }
+            if (rotValPlus || rotValMinus) {
+              wfYes = !wfYes;
+              rotValPlus = rotValMinus = 0;
+            }
+            if (millis() - wfLast >= 400) {
+              wfBlink = !wfBlink;
+              wfLast = millis();
+            }
             lcd_set_cursor(1, 0);
             lcd_print(wfYes ? (wfBlink ? "< NO  -> YES >  " : "< NO     YES >  ")
-                             : (wfBlink ? "< NO <-  YES >  " : "< NO     YES >  "));
+                            : (wfBlink ? "< NO <-  YES >  " : "< NO     YES >  "));
             if (isEnterButtonDown()) {
-              { unsigned long _ps = millis(); while (millis() - _ps < 600) { wdt_reset(); rotaryFunc(); delay(5); } }
+              {
+                unsigned long _ps = millis();
+                while (millis() - _ps < 600) {
+                  wdt_reset();
+                  rotaryFunc();
+                  delay(5);
+                }
+              }
               if (isEnterButtonDown()) {
                 if (wfYes) {
-                  lcd_set_cursor(0, 0); lcd_print("  WiFi Reset!   ");
-                  lcd_set_cursor(1, 0); lcd_print("                ");
+                  lcd_set_cursor(0, 0);
+                  lcd_print("  WiFi Reset!   ");
+                  lcd_set_cursor(1, 0);
+                  lcd_print("                ");
                   iotSerial.println("<{\"TS\":{\"n\":\"RW\"}}>");
                   Serial3.println("[MENU] WiFi Reset sent");
-                  wdt_reset(); delay(2000);
+                  wdt_reset();
+                  delay(2000);
                 }
-                mainMenuShow(); break;
+                mainMenuShow();
+                break;
               }
             }
           }
@@ -1338,44 +1445,9 @@ void menuUi() {
         mainMenuShow();
         break;
 
-      // ── SETTINGS mlvl3: FACTORY RESET confirmation ────────
-      case 3710: {
-          bool frYes = false;
-          bool frBlink = false;
-          unsigned long frLast = millis();
-          unsigned long frTimeout = millis();
-          lcd_set_cursor(0, 0);
-          lcd_print(" Factory Reset? ");
-          while (1) {
-            wdt_reset();
-            rotaryFunc();
-            if (millis() - frTimeout >= 30000UL) { mainMenuShow(); break; }
-            if (takeMenuPress()) { mainMenuShow(); break; }
-            if (rotValPlus || rotValMinus) { frYes = !frYes; rotValPlus = rotValMinus = 0; }
-            if (millis() - frLast >= 400) { frBlink = !frBlink; frLast = millis(); }
-            lcd_set_cursor(1, 0);
-            lcd_print(frYes ? (frBlink ? "< NO  -> YES >  " : "< NO     YES >  ")
-                             : (frBlink ? "< NO <-  YES >  " : "< NO     YES >  "));
-            if (isEnterButtonDown()) {
-              { unsigned long _ps = millis(); while (millis() - _ps < 600) { wdt_reset(); rotaryFunc(); delay(5); } }
-              if (isEnterButtonDown()) {
-                if (frYes) {
-                  lcd_set_cursor(0, 0); lcd_print("  Resetting...  ");
-                  lcd_set_cursor(1, 0); lcd_print("                ");
-                  wdt_reset(); delay(1000);
-                  con_default(); loadcon(); loadModeVal();
-                  menuUiFunc = 0;
-                  wdt_reset(); delay(5000);  // WDT reboots
-                } else { mainMenuShow(); }
-                break;
-              }
-            }
-          }
-          break;
-        }
-
-      // ── SETTINGS mlvl3: RESET DEVICE confirmation ─────────
-      case 3810: {
+      // ── SETTINGS mlvl3: RESET DEVICE confirmation ────────
+      case 3710:
+        {
           bool rdYes = false;
           bool rdBlink = false;
           unsigned long rdLast = millis();
@@ -1385,26 +1457,53 @@ void menuUi() {
           while (1) {
             wdt_reset();
             rotaryFunc();
-            if (millis() - rdTimeout >= 30000UL) { mainMenuShow(); break; }
-            if (takeMenuPress()) { mainMenuShow(); break; }
-            if (rotValPlus || rotValMinus) { rdYes = !rdYes; rotValPlus = rotValMinus = 0; }
-            if (millis() - rdLast >= 400) { rdBlink = !rdBlink; rdLast = millis(); }
+            if (millis() - rdTimeout >= 30000UL) {
+              mainMenuShow();
+              break;
+            }
+            if (takeMenuPress()) {
+              mainMenuShow();
+              break;
+            }
+            if (rotValPlus || rotValMinus) {
+              rdYes = !rdYes;
+              rotValPlus = rotValMinus = 0;
+            }
+            if (millis() - rdLast >= 400) {
+              rdBlink = !rdBlink;
+              rdLast = millis();
+            }
             lcd_set_cursor(1, 0);
             lcd_print(rdYes ? (rdBlink ? "< NO  -> YES >  " : "< NO     YES >  ")
-                             : (rdBlink ? "< NO <-  YES >  " : "< NO     YES >  "));
+                            : (rdBlink ? "< NO <-  YES >  " : "< NO     YES >  "));
             if (isEnterButtonDown()) {
-              { unsigned long _ps = millis(); while (millis() - _ps < 600) { wdt_reset(); rotaryFunc(); delay(5); } }
+              {
+                unsigned long _ps = millis();
+                while (millis() - _ps < 600) {
+                  wdt_reset();
+                  rotaryFunc();
+                  delay(5);
+                }
+              }
               if (isEnterButtonDown()) {
                 if (rdYes) {
-                  lcd_set_cursor(0, 0); lcd_print("  RESETTING...  ");
-                  lcd_set_cursor(1, 0); lcd_print("                ");
+                  lcd_set_cursor(0, 0);
+                  lcd_print("  RESETTING...  ");
+                  lcd_set_cursor(1, 0);
+                  lcd_print("                ");
                   storage.modeM1 = 0;
                   markLocalModeChange();
                   Serial3.println("[MENU] Reset Device");
-                  savecon(); loadModeVal();
-                  wdt_reset(); delay(2000);
-                  uiFunc(1); menuUiFunc = 0; lcd_modeShow();
-                } else { mainMenuShow(); }
+                  savecon();
+                  loadModeVal();
+                  wdt_reset();
+                  delay(2000);
+                  uiFunc(1);
+                  menuUiFunc = 0;
+                  lcd_modeShow();
+                } else {
+                  mainMenuShow();
+                }
                 break;
               }
             }
@@ -1413,7 +1512,7 @@ void menuUi() {
         }
 
       // ── SETTINGS mlvl3: [BACK] leaf ───────────────────────
-      case 3910:
+      case 3810:
         menuUiFunc = 0;
         uiFunc(0);
         return;
@@ -1446,21 +1545,88 @@ void menuUi() {
 
       // ── ABOUT DEVICE main menu group ──────────────────────
       case 5100:
+        // Reset page so info display always starts at page 0 on each entry.
+        aboutDevPage = 0;
         lcd_set_cursor(0, 0);
         lcd_print("-> SHOW INFO    ");
         lcd_set_cursor(1, 0);
         lcd_print("                ");
         break;
-      case 5110: {
-          char fw_buf[17];
-          lcd_set_cursor(0, 0);
-          lcd_print("HorizonGrid     ");
-          snprintf(fw_buf, sizeof(fw_buf), "FW: %-12s", FIRMWARE_VERSION);
-          lcd_set_cursor(1, 0);
-          lcd_print(fw_buf);
-          wdt_reset();
-          delay(3000);
-          mainMenuShow();
+
+      case 5110:
+        {
+          // Non-blocking multi-page About Device info display.
+          // All strings are read from PROGMEM (flash) — no RAM overhead.
+          //
+          // Page 0 : Company name + Firmware version (from PROGMEM)
+          // Page 1 : Manufacture date = compiler __DATE__ (from PROGMEM)
+          //
+          // Rotate pages with rotary knob (UP / DOWN / push all cycle).
+          // MENU back-press is handled by the top-level handler above and
+          // navigates back to case 5100 normally.
+          // The 30 s idle timeout in menuUi() acts as the overall exit guard.
+          const uint8_t ABOUT_PAGES = 2;
+
+          // Detect fresh entry
+          bool isFirstEntry = (prevMenuPos != 5110);
+          if (isFirstEntry) aboutDevPage = 0;
+
+          // Consume rotary events so rotaryVal() does NOT advance menuPos.
+          bool pageChanged = isFirstEntry;
+          if (rotValPlus) {
+            rotValPlus = 0;
+            aboutDevPage = (aboutDevPage + 1) % ABOUT_PAGES;
+            pageChanged = true;
+          }
+          if (rotValMinus) {
+            rotValMinus = 0;
+            aboutDevPage = (aboutDevPage + ABOUT_PAGES - 1) % ABOUT_PAGES;
+            pageChanged = true;
+          }
+          if (rotPush) {
+            rotPush = 0;
+            aboutDevPage = (aboutDevPage + 1) % ABOUT_PAGES;
+            pageChanged = true;
+          }
+
+          if (pageChanged) {
+            char pmBuf[17];  // scratch buffer for PROGMEM → RAM copy
+            char b[17];      // formatted LCD line
+
+            switch (aboutDevPage) {
+
+              case 0:  // ── Company + Firmware version ────────────────────────
+                // Row 0: company name (stored in flash)
+                strncpy_P(pmBuf, about_company, 16);
+                pmBuf[16] = '\0';
+                lcd_set_cursor(0, 0);
+                lcd_print(pmBuf);
+
+                // Row 1: "FW: <version>" padded to 16 chars
+                strncpy_P(pmBuf, about_fwver, 16);
+                pmBuf[16] = '\0';
+                snprintf(b, sizeof(b), "FW: %-12s", pmBuf);
+                lcd_set_cursor(1, 0);
+                lcd_print(b);
+                break;
+
+              case 1:  // ── Manufacture date (compile-time __DATE__) ─────────
+                // Row 0: label (stored in flash)
+                strncpy_P(pmBuf, about_mfg_lbl, 16);
+                pmBuf[16] = '\0';
+                lcd_set_cursor(0, 0);
+                lcd_print(pmBuf);
+
+                // Row 1: date string padded to 16 chars, e.g. "Mar 13 2026     "
+                strncpy_P(pmBuf, about_mfg_date, 16);
+                pmBuf[16] = '\0';
+                snprintf(b, sizeof(b), "%-16s", pmBuf);
+                lcd_set_cursor(1, 0);
+                lcd_print(b);
+                break;
+            }
+          }
+          // Stays here every loop until MENU is pressed or idle timeout fires.
           break;
         }
 
@@ -1472,5 +1638,6 @@ void menuUi() {
         mlvl1 = 1;
         break;
     }
+    prevMenuPos = menuPos;  // record for isFirstEntry detection next call
   }
 }

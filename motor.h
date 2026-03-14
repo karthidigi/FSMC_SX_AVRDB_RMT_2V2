@@ -73,7 +73,7 @@ void motorStaCheck() {
   if (curR >= STA_MIN_AMPHS || curY >= STA_MIN_AMPHS || curBM1 >= STA_MIN_AMPHS ) {
 
     m1StaVars = 1;
-    digitalWrite(PIN_LED_GREEN, LOW);
+    if (elst == 0) pa2GreenOn();  // GREEN on; skip if fault blink is active
 
     if (!m1LastAckSta) {
       m1OnBuffMillis = millis();
@@ -90,7 +90,7 @@ void motorStaCheck() {
   } else {
 
     m1StaVars = 0;
-    digitalWrite(PIN_LED_GREEN, HIGH);
+    if (elst == 0) pa2LedOff();   // both off; skip if fault blink is active
 
     if (m1LastAckSta) {
       m1StaAckVars = 1;

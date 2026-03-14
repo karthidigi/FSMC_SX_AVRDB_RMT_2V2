@@ -1,6 +1,7 @@
 ///////////////////////////////////////
 char encapData[MAX_MESSAGE_LEN];
-bool loraAck = 0;
+bool loraAck       = 0;
+bool offAckPending = 0;   // set when [1F] received while motor running; cleared by loraTxFunc after currents < 0.5A
 ///////////////////////////////////////
 void rxFunc() {
   DEBUG_PRINT(F("RX CMD: "));
@@ -15,6 +16,7 @@ void rxFunc() {
     lcd_print(" MOTOR  CONTROL ");
     lcd_set_cursor(1, 0);
     lcd_print(" REMOTE :  ON   ");
+    uiFunc(1);   // hold LCD message visible for 3 s (non-blocking block of uiFunc redraw)
     // Cancel any active OFF latch so REMOTE ON is never blocked by the off delay
     if (m1OffActive) {
       stopOffTimer();
@@ -32,7 +34,6 @@ void rxFunc() {
       storage.app1Run = 1;
       savecon();
     }
-    delay(100);
 
   } else if ((strcmp(encapData, "1F") == 0) ||
              (strcmp(encapData, "M10") == 0) ||
@@ -43,8 +44,15 @@ void rxFunc() {
     lcd_print(" MOTOR  CONTROL ");
     lcd_set_cursor(1, 0);
     lcd_print(" REMOTE :  OFF  ");
+    uiFunc(1);   // hold LCD message visible for 3 s (non-blocking block of uiFunc redraw)
     m1Off();
-    loraAck = 1;
+    // If motor was running, defer ACK until currents confirm it has stopped.
+    // If already stopped, ACK immediately through the normal path.
+    if (m1StaVars) {
+      offAckPending = 1;
+    } else {
+      loraAck = 1;
+    }
 
     if (storage.modeM1 == 5) {
       laStaAppStaSavShow = 1;
@@ -76,9 +84,12 @@ void rxFunc() {
     lcd_print(" MOTOR  STATUS  ");
     lcd_set_cursor(1, 0);
     lcd_print(" REMOTE :  ACK  ");
+    uiFunc(1);   // hold LCD message visible for 3 s (non-blocking block of uiFunc redraw)
     DEBUG_PRINTN(F("S? received"));
     loraAck = 1;
-    delay(1000);
+    // No blocking delay here — loraTxFunc() already waits 1500 ms before sending
+    // the ACK so the motor current can stabilise. A delay() here would freeze the
+    // radio state machine and prevent wdt_reset() from running.
   } else {
     DEBUG_PRINTN(F("CMD not found received"));
   }

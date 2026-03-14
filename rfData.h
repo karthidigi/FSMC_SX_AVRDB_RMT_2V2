@@ -33,9 +33,41 @@ void loraTx10sec() {
 
 
 void loraTxFunc() {
+  static unsigned long offAckStartMs    = 0;
+  static bool          offCurrentForced = false;
+
   static unsigned long ackTime = 0;
   static bool ackReadyToSend = false;
   static bool currentUpdateForced = false;
+
+  // --- Remote OFF ACK: hold response until relay latch completes AND Iavg < 0.5A ---
+  if (offAckPending) {
+    if (offAckStartMs == 0) {
+      offAckStartMs = millis();
+      if (!offAckStartMs) offAckStartMs = 1;
+      offCurrentForced = false;
+    }
+
+    // As soon as the off-relay latch finishes, force a fresh current sample
+    if (!m1OffActive && !offCurrentForced) {
+      forceCurrentUpdate();
+      offCurrentForced = true;
+    }
+
+    float Iavg          = (curRFilt + curYFilt + curBFilt) / 3.0f;
+    bool  motorStopped  = (!m1OffActive && Iavg < 0.5f);
+    bool  timedOut      = (millis() - offAckStartMs >= 10000UL);
+
+    if (motorStopped || timedOut) {
+      encryptNTx("[1F]");
+      offAckPending    = 0;
+      offAckStartMs    = 0;
+      offCurrentForced = false;
+    }
+    return;   // Block normal ACK path while waiting
+  }
+  offAckStartMs    = 0;
+  offCurrentForced = false;
 
   if (loraAck) {
 
