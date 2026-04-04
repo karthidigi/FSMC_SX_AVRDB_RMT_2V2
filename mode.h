@@ -8,7 +8,10 @@ unsigned long atLastTrigdMillis = 0;
 unsigned long localModeChangeGuardUntil = 0;
 
 static inline void markLocalModeChange() {
-  localModeChangeGuardUntil = millis() + 5000UL;
+  // 30 s guard: long enough for the starter to push a1ops to the cloud via
+  // iotSerial and for the cloud to acknowledge before any stale shared-attribute
+  // push can override the locally-set mode.
+  localModeChangeGuardUntil = millis() + 30000UL;
 }
 
 static inline bool isLocalModeChangeGuardActive() {
@@ -75,6 +78,7 @@ void loadModeVal() {
   cyclicM1OffDurMillis = (cyOffHrs + cyOffMins) * 1000 + millis();
 
   laStaRemM1Trigd = 0;
+  laStaRemM1remTrigrd = 0;   // clear remote-trigger block so mode re-enable always allows auto-start
   laStaRemM1BuffMillis = millis();
   laStaRemMins = String(storage.lasRemM1).substring(1, 3).toInt() * 60;
   laStaRemSec = String(storage.lasRemM1).substring(3, 5).toInt();

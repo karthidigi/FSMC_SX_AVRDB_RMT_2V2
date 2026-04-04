@@ -25,8 +25,6 @@ struct StoreStruct {
   char lasRemM1[6];
 
   char remote[21];    // 20-char remote chip-serial + null; "" = not yet paired
-  char gateway[21];   // 20-char GW ID + null; "" = not yet paired with gateway
-  uint8_t rf_locked;  // 0 = using default RF params, 1 = OPER channel (post-pairing)
 
   uint16_t senseTime;   // Sense time in seconds (10–120)
   uint8_t  onRelay;     // ON relay latch in seconds (2–5)
@@ -77,8 +75,6 @@ StoreStruct storage_default = {
     "z00000000000000000" },
   "z0000",
   "",    // remote: empty — set via LoRa pairing
-  "",    // gateway: empty — set via LoRa pairing
-  0,     // rf_locked: 0 = not yet on operational channel
   10,    // senseTime default: 10 s
   2,     // onRelay default: 2 s
   3,     // offRelay default: 3 s
@@ -131,10 +127,6 @@ void printStorage() {
 
   Serial3.print(F("Remote ID: "));
   Serial3.println(storage.remote);
-  Serial3.print(F("Gateway ID: "));
-  Serial3.println(storage.gateway);
-  Serial3.print(F("RF locked: "));
-  Serial3.println(storage.rf_locked);
 
   Serial3.println(F("========================"));
 }
@@ -181,8 +173,7 @@ void loadcon() {
   //strncpy(storage.remote, REMOTE_ID, sizeof(storage.remote) - 1);
   //storage.remote[sizeof(storage.remote) - 1] = '\0';
 
-  storage.remote[sizeof(storage.remote)  - 1] = '\0';  // ensure null termination
-  storage.gateway[sizeof(storage.gateway) - 1] = '\0'; // ensure null termination
+  storage.remote[sizeof(storage.remote) - 1] = '\0';  // ensure null termination
   if (storage.modeM1 >= '0' && storage.modeM1 <= '5') {
     storage.modeM1 = storage.modeM1 - '0';
   } else if (storage.modeM1 == 6) {

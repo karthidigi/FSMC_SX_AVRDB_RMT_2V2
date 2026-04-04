@@ -18,9 +18,9 @@ void Simulation() {
     curR   = (float)random((long)(storage.dryRunM1+1), (long)(storage.ovLRunM1-1)) + curR_SimThrs;
     curY   = (float)random((long)(storage.dryRunM1+1), (long)(storage.ovLRunM1-1)) + curY_SimThrs;
     curBM1 = (float)random((long)(storage.dryRunM1+1), (long)(storage.ovLRunM1-1)) + curBM1_SimThrs;
-    curBM2 = (float)random((long)(storage.dryRunM1+1), (long)(storage.ovLRunM1-1)) + curBM2_SimThrs;
+    // curBM2 = (float)random((long)(storage.dryRunM1+1), (long)(storage.ovLRunM1-1)) + curBM2_SimThrs;
   } else {
-    curR = 0.0; curY = 0.0; curBM1 = 0.0; curBM2 = 0.0;
+    curR = 0.0; curY = 0.0; curBM1 = 0.0; 
   }
 
 #endif

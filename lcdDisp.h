@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <stdio.h>
+#include "hwSer.h"   // defines iotSerial (Serial1 stub) and debugSerial (Serial3)
 
 // Number of items in the scrollable status screen.
 // When ENABLE_RTC is defined a Date/Time item (index 7) is appended.
@@ -436,32 +437,63 @@ static void openCountdownHotkey() {
 bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int yT);
 void uiFunc(bool lx);
 
+// DISABLED — countdown ENTER hotkey (reserved for future use)
 // Direct countdown editor — mirrors case 1410 logic exactly.
 // Called from the status-screen ENTER hotkey so that get2ValFunc() runs
 // immediately without relying on menuUi()/mlvl routing.
-static void invokeCountdownEditor() {
-  int v1 = String(storage.countM1).substring(1, 3).toInt();
-  int v2 = String(storage.countM1).substring(3, 5).toInt();
-  if (get2ValFunc("CounTmr", v1, v2, 'h', 23, 'm', 59)) {
-    // Confirmed — save value and activate Countdown mode
-    storage.modeM1 = 3;
-    markLocalModeChange();
-    char tVal[17];
-    snprintf(tVal, sizeof(tVal), "z%02d%02d", v1, v2);
-    strncpy(storage.countM1, tVal, sizeof(storage.countM1) - 1);
-    storage.countM1[sizeof(storage.countM1) - 1] = '\0';
-    savecon();
-    iotSerial.println("<{\"AT\":{\"a1cTmr\":\"" + String(storage.countM1) + "\"}}>");
-    delay(500);
-    iotSerial.println("<{\"TS\":{\"n\":\"3\"}}>");
-    loadModeVal();
-    uiFunc(1);     // hold "mode changed" display for 3 s non-blocking
-    lcd_modeShow();
-  }
-  // Always close menu and return to home display (cancel path arrives here too)
-  menuUiFunc      = 0;
-  lcdDisplayState = 255;
-}
+// static void invokeCountdownEditor() {
+//   int v1 = String(storage.countM1).substring(1, 3).toInt();
+//   int v2 = String(storage.countM1).substring(3, 5).toInt();
+//   if (get2ValFunc("CounTmr", v1, v2, 'h', 23, 'm', 59)) {
+//     // Confirmed — save value and activate Countdown mode
+//     storage.modeM1 = 3;
+//     markLocalModeChange();
+//     char tVal[17];
+//     snprintf(tVal, sizeof(tVal), "z%02d%02d", v1, v2);
+//     strncpy(storage.countM1, tVal, sizeof(storage.countM1) - 1);
+//     storage.countM1[sizeof(storage.countM1) - 1] = '\0';
+//     savecon();
+//     iotSerial.println("<{\"AT\":{\"a1cTmr\":\"" + String(storage.countM1) + "\"}}>");
+//     delay(500);
+//     iotSerial.println("<{\"TS\":{\"n\":\"3\"}}>");
+//     loadModeVal();
+//     uiFunc(1);     // hold "mode changed" display for 3 s non-blocking
+//     lcd_modeShow();
+//   }
+//   // Always close menu and return to home display (cancel path arrives here too)
+//   menuUiFunc      = 0;
+//   lcdDisplayState = 255;
+// }
+
+// DISABLED — automode MODE-hold hotkey (reserved for future use)
+// MODE hotkey from NORMAL mode (hold ≥ 1 s) → opens AUTO-delay mm:ss editor.
+// Mirrors menu case 1210 exactly.  ENTER confirms + activates; MENU/MODE cancels.
+// static void invokeAutoModeHotkey() {
+//   menuUiFunc = 1;   // pause emon during editor (same mechanism as settings menu)
+//   int v1 = String(storage.autoM1).substring(1, 3).toInt();
+//   int v2 = String(storage.autoM1).substring(3, 5).toInt();
+//   if (get2ValFunc("AutoDly", v1, v2, 'm', 59, 's', 59)) {
+//     storage.modeM1 = 1;
+//     markLocalModeChange();
+//     char tVal[17];
+//     snprintf(tVal, sizeof(tVal), "z%02d%02d", v1, v2);
+//     strncpy(storage.autoM1, tVal, sizeof(storage.autoM1) - 1);
+//     storage.autoM1[sizeof(storage.autoM1) - 1] = '\0';
+//     savecon();
+//     iotSerial.println("<{\"AT\":{\"a1auDly\":\"" + String(storage.autoM1) + "\"}}>");
+//     delay(500);
+//     iotSerial.println("<{\"TS\":{\"n\":\"2\"}}>");
+//     if (m1StaVars) m1Off();
+//     loadModeVal();
+//     autoM1Trigd      = 0;
+//     autoM1BuffMillis = millis();
+//     atLastTrigdMillis = 0;
+//     uiFunc(1);
+//     lcd_modeShow();
+//   }
+//   menuUiFunc      = 0;
+//   lcdDisplayState = 255;
+// }
 
 // ENTER hotkey from Status List → jumps directly to Cyclic ON-duration editor
 static void openCyclicHotkey() {
@@ -475,7 +507,8 @@ static void openCyclicHotkey() {
 }
 
 static void toggleNormalAutoMode() {
-  uint8_t curMode = normalizeModeForUi(storage.modeM1);
+  uint8_t curMode  = normalizeModeForUi(storage.modeM1);
+  uint8_t prevMode = storage.modeM1;   // capture before overwrite
 
   // Button logic (fixed):
   //   Not in Normal → always go to Normal + stop motor
@@ -484,6 +517,9 @@ static void toggleNormalAutoMode() {
 
   storage.modeM1 = nextMode;
   markLocalModeChange();
+  if (nextMode == 0 && prevMode == 5) {
+    storage.app1Run = 0;   // manual switch to Normal clears last-state run intent
+  }
   savecon();
   loadModeVal();
 
@@ -656,9 +692,11 @@ static void lcd_drawFault() {
         snprintf(lcd_buf, sizeof(lcd_buf), "OV Recovry %02lu:%02lu", mins, sec);
       } else {
         unsigned long elapsed = voltFaultTimerRun ? (millis() - voltFaultStartMs) : 0;
-        sec = elapsed / 1000; mins = sec / 60; if (mins > 99) mins = 99; sec %= 60;
+        unsigned long tSec = elapsed / 1000;
+        unsigned long fHrs = tSec / 3600; if (fHrs > 99) fHrs = 99;
+        unsigned long fMin = (tSec % 3600) / 60;
         const char* shortName = unVolVars ? "UNDERVOLT " : "OVERVOLT  ";
-        snprintf(lcd_buf, sizeof(lcd_buf), "%s%02lu:%02lu ", shortName, mins, sec);
+        snprintf(lcd_buf, sizeof(lcd_buf), "%s%02lu:%02lu ", shortName, fHrs, fMin);
       }
     }
     lcd_set_cursor(1, 0); lcd_print(lcd_buf);
@@ -677,8 +715,10 @@ static void lcd_drawFault() {
         snprintf(lcd_buf, sizeof(lcd_buf), "PH Recovry %02lu:%02lu", mins, sec);
       } else {
         unsigned long elapsed = phaseFaultTimerRun ? (millis() - phaseFaultStartMs) : 0;
-        sec = elapsed / 1000; mins = sec / 60; if (mins > 99) mins = 99; sec %= 60;
-        snprintf(lcd_buf, sizeof(lcd_buf), "PHASE CUT %02lu:%02lu ", mins, sec);
+        unsigned long tSec = elapsed / 1000;
+        unsigned long fHrs = tSec / 3600; if (fHrs > 99) fHrs = 99;
+        unsigned long fMin = (tSec % 3600) / 60;
+        snprintf(lcd_buf, sizeof(lcd_buf), "PHASE CUT %02lu:%02lu ", fHrs, fMin);
       }
     }
     lcd_set_cursor(1, 0); lcd_print(lcd_buf);
@@ -827,13 +867,30 @@ static void lcdDisplayStateMachine() {
 }
 
 void uiFunc(bool lx) {
-  static unsigned long blockUntil = 0;
+  static unsigned long blockUntil       = 0;
+  // Hold-state statics declared here (outside inner block) so the blockUntil
+  // section can cancel them when an external uiFunc(1) interrupts a hold.
+  static unsigned long modeHoldStart    = 0; (void)modeHoldStart;  // unused while automode hotkey is disabled
+  static bool          modeHoldActive   = false;
+  static unsigned long autoOffHoldStart = 0;
+  static bool          autoOffHoldActive = false;
+  // Prevents Path 2 from starting immediately while button is still held
+  // after a successful Path 1 or Path 2 activation.
+  static bool          modeNeedsRelease = false;
+
   unsigned long now = millis();
 
   rotaryFunc();
 
   if (lx) {
     blockUntil = now + 3000;
+    // Cancel any in-progress hold so stale elapsed cannot fire on resume.
+    if (modeHoldActive) {
+      modeHoldActive     = false;
+      modeHoldInProgress = false;
+    }
+    autoOffHoldActive = false;
+    autoOffHoldStart  = 0;
     return;
   }
 
@@ -847,7 +904,92 @@ void uiFunc(bool lx) {
     rotValPlus  = 0;
     rotValMinus = 0;
     rotPush     = 0;
+    // Also cancel holds — stale modeHoldStart must not persist past blockUntil.
+    if (modeHoldActive) {
+      modeHoldActive     = false;
+      modeHoldInProgress = false;
+    }
+    autoOffHoldActive = false;
+    autoOffHoldStart  = 0;
     return;
+  }
+
+  // ── MODE button hold detection ───────────────────────────────────────────────
+  // NORMAL → AUTO:       Hold ≥ 1 s → opens AUTO-delay mm:ss editor.
+  //                      ENTER in editor confirms + activates; MENU/MODE cancels.
+  //                      modeHoldInProgress pauses emon ADC-ISR during the 1 s
+  //                      window (same mechanism as menuUiFunc), preventing ISR
+  //                      noise from dropping btnStable and cancelling the hold.
+  // non-NORMAL → NORMAL: Hold ≥ 1 s → silent direct toggle.
+  {
+    bool    modeDown = isModeButtonDown();   // uses debounced btnStable
+    uint8_t curMode  = normalizeModeForUi(storage.modeM1);
+
+    // Release gate: clear flags and resume emon the moment button is up.
+    if (!modeDown) {
+      modeNeedsRelease   = false;
+      modeHoldInProgress = false;
+    }
+
+    // DISABLED — Path 1: NORMAL → AUTO (1-second hold → mm:ss editor)
+    // Reserved for future use. invokeAutoModeHotkey() is also commented out.
+    // if (modeDown && curMode == 0 && !bypassActive && !modeNeedsRelease) {
+    //   autoOffHoldActive = false;
+    //   autoOffHoldStart  = 0;
+    //   if (!modeHoldActive) {
+    //     modeHoldActive     = true;
+    //     modeHoldInProgress = true;
+    //     modeHoldStart      = now;
+    //   }
+    //   lcd_set_cursor(0, 0);
+    //   lcd_print("AutoMode Activtn");
+    //   lcd_set_cursor(1, 0);
+    //   lcd_print("Hold MODE 1s... ");
+    //   if (now - modeHoldStart >= 1000UL) {
+    //     modeHoldActive     = false;
+    //     modeHoldInProgress = false;
+    //     modeNeedsRelease   = true;
+    //     takeModePress();
+    //     invokeAutoModeHotkey();
+    //     blockUntil = millis() + 1200;
+    //   }
+    //   return;
+    // }
+
+    // Path 1 cancel: button released before 1 s threshold.
+    if (modeHoldActive) {
+      modeHoldActive     = false;
+      modeHoldInProgress = false;
+      takeModePress();
+      lcdDisplayState = 255;
+    }
+
+    // ── Path 2: non-NORMAL → NORMAL (1-second hold) ──────────────────────────
+    // modeNeedsRelease blocks immediately-re-held case after any activation.
+    if (modeDown && curMode != 0 && !modeNeedsRelease) {
+      if (!autoOffHoldActive) {
+        autoOffHoldActive  = true;
+        autoOffHoldStart   = now;
+        modeHoldInProgress = true;   // pause emon during hold
+      }
+      if (now - autoOffHoldStart >= 1000UL) {
+        autoOffHoldActive  = false;
+        autoOffHoldStart   = 0;
+        modeHoldInProgress = false;
+        modeNeedsRelease   = true;
+        takeModePress();
+        toggleNormalAutoMode();       // non-NORMAL → NORMAL
+        blockUntil = millis() + 1200;
+      }
+      return;
+    }
+    // Cancel Path 2 if button released before 1 s
+    if (autoOffHoldActive) {
+      autoOffHoldActive  = false;
+      autoOffHoldStart   = 0;
+      modeHoldInProgress = false;
+      takeModePress();
+    }
   }
 
   // ── Bypass switch warning — HIGHEST display priority ─────────────────────
@@ -901,24 +1043,20 @@ void uiFunc(bool lx) {
 
     bool modePressed = takeModePress();
 
-    // ENTER (rotPush) in Status List → open Countdown timer editor directly
-    if (rotPush) {
-      rotPush = 0;
-      statusScreenActive = 0;
-      clearNavEvents();
-      invokeCountdownEditor();   // runs get2ValFunc() inline — no menuUi routing needed
-      return;
-    }
+    // DISABLED — ENTER in Status List → countdown editor (reserved for future use)
+    // if (rotPush) {
+    //   rotPush = 0;
+    //   statusScreenActive = 0;
+    //   clearNavEvents();
+    //   invokeCountdownEditor();   // runs get2ValFunc() inline — no menuUi routing needed
+    //   return;
+    // }
+    if (rotPush) { rotPush = 0; }   // consume ENTER — no action while hotkey is disabled
 
     if (takeMenuPress() || modePressed) {
       statusScreenActive = 0;
       clearNavEvents();
-      if (modePressed) {
-        toggleNormalAutoMode();
-        blockUntil = millis() + 1200;
-      } else {
-        lcdDisplayState = 255;   // let state machine redraw on next call
-      }
+      lcdDisplayState = 255;   // let state machine redraw on next call
       return;
     }
 
@@ -982,22 +1120,20 @@ void uiFunc(bool lx) {
     return;
   }
 
-  if (takeModePress()) {
-    toggleNormalAutoMode();
-    blockUntil = millis() + 1200;
-    return;
-  }
+  takeModePress();   // consume any residual press not handled by hold block above
 
   if (takeMenuPress()) {
     openMainMenuRoot();
     return;
   }
 
-  if (rotPush) {
-    rotPush = 0;
-    invokeCountdownEditor();   // ENTER hotkey: open countdown timer editor directly
-    return;
-  }
+  // DISABLED — ENTER hotkey for countdown mode (reserved for future use)
+  // if (rotPush) {
+  //   rotPush = 0;
+  //   invokeCountdownEditor();   // ENTER hotkey: open countdown timer editor directly
+  //   return;
+  // }
+  if (rotPush) { rotPush = 0; }   // consume ENTER — no action while hotkey is disabled
 
   if (rotValPlus || rotValMinus) {
     uint8_t curMode = normalizeModeForUi(storage.modeM1);

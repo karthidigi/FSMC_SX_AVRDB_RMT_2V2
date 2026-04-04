@@ -27,7 +27,9 @@ static float filt_R_buf[CURR_FILTER_LEN] = {0};
 static float filt_Y_buf[CURR_FILTER_LEN] = {0};
 static float filt_B_buf[CURR_FILTER_LEN] = {0};
 static uint8_t filt_idx = 0;
-float curRFilt = 0, curYFilt = 0, curBFilt = 0;   // filtered values used by all check fns
+float curRFilt   = 0, curYFilt = 0, curBFilt = 0;  // filtered values used by all check fns
+float curIavgFilt = 0;  // pre-computed average of the three filtered phases — avoids
+                         // recomputing (curRFilt+curYFilt+curBFilt)/3 in every check fn
 
 void updateCurrentFilter() {
   filt_R_buf[filt_idx] = curR;
@@ -38,9 +40,10 @@ void updateCurrentFilter() {
   for (uint8_t i = 0; i < CURR_FILTER_LEN; i++) {
     sR += filt_R_buf[i]; sY += filt_Y_buf[i]; sB += filt_B_buf[i];
   }
-  curRFilt = sR / CURR_FILTER_LEN;
-  curYFilt = sY / CURR_FILTER_LEN;
-  curBFilt = sB / CURR_FILTER_LEN;
+  curRFilt   = sR / CURR_FILTER_LEN;
+  curYFilt   = sY / CURR_FILTER_LEN;
+  curBFilt   = sB / CURR_FILTER_LEN;
+  curIavgFilt = (curRFilt + curYFilt + curBFilt) / 3.0f;  // computed once per filter update
 }
 
 // Fault-duration timers -- set on first trip; cleared when fault clears
@@ -101,6 +104,7 @@ void overLoadCheck() {
           m1Off();
           a1et = 29;
           if (storage.modeM1 != 0) {
+            if (storage.modeM1 == 5) { storage.app1Run = 0; }   // clear last-state intent on fault
             storage.modeM1 = 0;
             markLocalModeChange();
             savecon();
@@ -135,7 +139,7 @@ void dryRunCheck() {
   static unsigned long drOnMs    = 0;   // when filtered current first exceeded min threshold
   static bool          drPrevOn  = false;
 
-  float Iavg    = (curRFilt + curYFilt + curBFilt) / 3.0f;
+  float Iavg    = curIavgFilt;
   bool  motorOn = (Iavg > DRY_RUN_MOTOR_MIN_A);
 
   if (!motorOn) {
@@ -167,6 +171,7 @@ void dryRunCheck() {
         m1Off();
         a1et = 28;
         if (storage.modeM1 != 0) {
+          if (storage.modeM1 == 5) { storage.app1Run = 0; }   // clear last-state intent on fault
           storage.modeM1 = 0;
           markLocalModeChange();
           savecon();
@@ -191,7 +196,7 @@ void dryRunCheck() {
 void openWireCheck() {
   static unsigned long owStartMs = 0;
 
-  float Iavg = (curRFilt + curYFilt + curBFilt) / 3.0f;
+  float Iavg = curIavgFilt;
   bool anyLow = (curRFilt <= OPEN_WIRE_THRESHOLD_A ||
                  curYFilt <= OPEN_WIRE_THRESHOLD_A ||
                  curBFilt <= OPEN_WIRE_THRESHOLD_A);
@@ -206,6 +211,7 @@ void openWireCheck() {
           m1Off();
           a1et = 27;
           if (storage.modeM1 != 0) {
+            if (storage.modeM1 == 5) { storage.app1Run = 0; }   // clear last-state intent on fault
             storage.modeM1 = 0;
             markLocalModeChange();
             savecon();
@@ -233,7 +239,7 @@ void openWireCheck() {
 void leakageCheck() {
   static unsigned long lkStartMs = 0;
 
-  float Iavg = (curRFilt + curYFilt + curBFilt) / 3.0f;
+  float Iavg = curIavgFilt;
 
   if (m1StaVars && (millis() - m1OnBuffMillis >= 1000) && Iavg > LEAKAGE_IAVG_MIN_A) {
     float Imax   = max(curRFilt, max(curYFilt, curBFilt));
@@ -250,6 +256,7 @@ void leakageCheck() {
           m1Off();
           a1et = 26;
           if (storage.modeM1 != 0) {
+            if (storage.modeM1 == 5) { storage.app1Run = 0; }   // clear last-state intent on fault
             storage.modeM1 = 0;
             markLocalModeChange();
             savecon();

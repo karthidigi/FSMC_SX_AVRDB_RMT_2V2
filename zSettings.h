@@ -18,7 +18,7 @@
 //////////////////////////
 // HEY THERE DONT FORGET TO COMMENT IN PRODUCTION
 // OR ELSE => YOU WILL BE NOODLE
-// #define SIMULTION
+#define SIMULTION
 //////////////////////////
 // ---- DS3231 Real-Time Clock ----
 // Define ENABLE_RTC if the DS3231 module is physically installed.
@@ -32,7 +32,7 @@
 #define ENCRYPTION_ENABLED 1
 
 #define CONFIG_START 30
-#define CONFIG_VERSION "8092"   // bumped: new fields gateway[21] + rf_locked
+#define CONFIG_VERSION "8093"   // bumped: removed gateway[21] + rf_locked (no GW mode)
 
 // REMOTE_ID removed — remote serial is now stored via LoRa pairing (storage.remote).
 // Commented-out IDs kept for reference only.
@@ -66,11 +66,8 @@
 
 // ── Pairing packet types ──
 // 0x0A-0x0F are binary control bytes; AES-encrypted hex always starts 0x30-0x46 → unambiguous
-#define PKT_PAIR_REQ      0x0A   // Starter → Gateway  [type][starter_serial:20]
-#define PKT_PAIR_ACK      0x0B   // Gateway → Starter  [type][gw_id:20][sf][bwCode][cr][pre][pwr]
-#define PKT_PAIR_DONE     0x0C   // Starter → Gateway  [type][serial_echo:4]
 #define PKT_REM_PAIR_REQ  0x0D   // Remote  → Starter  [type][rem_serial:20]
-#define PKT_REM_PAIR_ACK  0x0E   // Starter → Remote   [type][starter_id:20][sf][bwCode][cr][pre][pwr]
+#define PKT_REM_PAIR_ACK  0x0E   // Starter → Remote   [type][starter_id:20][sf][bwCode][cr][pre][pwr][syncMsb][syncLsb]
 #define PKT_REM_PAIR_DONE 0x0F   // Remote  → Starter  [type][serial_echo:4]
 
 // ── Pairing timing ──

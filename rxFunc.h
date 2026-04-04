@@ -1,10 +1,11 @@
+#include "hwSer.h"   // defines iotSerial (Serial1 stub) and debugSerial (Serial3)
 ///////////////////////////////////////
 char encapData[MAX_MESSAGE_LEN];
-bool loraAck       = 0;
-bool offAckPending = 0;   // set when [1F] received while motor running; cleared by loraTxFunc after currents < 0.5A
-// Forward declarations — defined in rfData.h / iotData.h which are included after rxFunc.h
+bool loraAck              = 0;
+bool offAckPending        = 0;   // set when [1F] received while motor running; cleared by loraTxFunc after currents < 0.5A
+bool pendingLastStateSave = false; // deferred savecon() — set by 1N/1F handlers in modeM1==5, flushed by loraTxFunc after ACK TX
+// Forward declarations — defined in files included after rxFunc.h
 void encryptNTx(const char* msg);
-void iotDataSendVol(bool now);
 void loraTxFaultStatus();   // on-demand D0/D1/D2 reply (rfData.h)
 ///////////////////////////////////////
 void rxFunc() {
@@ -50,14 +51,15 @@ void rxFunc() {
       }
       m1On();
       loraAck = 1;
-      // Save EEPROM state only when Last State mode is active
+      // Update state fields now; defer savecon() until after ACK TX to avoid
+      // blocking the radio state machine before the remote's ACK window closes.
       if (storage.modeM1 == 5) {
         laStaAppStaSavShow = 1;
         laStaRemM1remTrigrd = 1;
         laStaRemM1Trigd = 1;
         digitalWrite(PIN_LED_YELLOW, LOW);
         storage.app1Run = 1;
-        savecon();
+        pendingLastStateSave = true;
       }
     }
 
@@ -84,8 +86,12 @@ void rxFunc() {
       laStaAppStaSavShow = 1;
       storage.app1Run = 0;
       digitalWrite(PIN_LED_YELLOW, HIGH);
-      savecon();
-    } else if (storage.modeM1 != 0) {
+      pendingLastStateSave = true;  // flushed by loraTxFunc after ACK TX
+    } else if (storage.modeM1 != 0 && !isLocalModeChangeGuardActive()) {
+      // Only reset mode when no recent local menu change is in progress.
+      // isLocalModeChangeGuardActive() stays true for 5 s after the user
+      // sets a mode via the LCD — prevents a gateway OFF command from
+      // wiping a freshly configured mode before the LoRa/cloud round-trip.
       storage.modeM1 = 0;
       savecon();
     }
@@ -102,7 +108,6 @@ void rxFunc() {
     uiFunc(1);
     digitalWrite(PIN_LiREL, HIGH);
     if (storage.app2Run != 1) { storage.app2Run = 1; savecon(); }
-    iotDataSendVol(1);
     loraAck = 1;
 
   } else if ((strcmp(encapData, "2F") == 0) ||
@@ -115,7 +120,6 @@ void rxFunc() {
     uiFunc(1);
     digitalWrite(PIN_LiREL, LOW);
     if (storage.app2Run != 0) { storage.app2Run = 0; savecon(); }
-    iotDataSendVol(1);
     loraAck = 1;
 
   // ── L1 / L0 (remote light-switch toggle via long press) ──────────────────
@@ -149,7 +153,9 @@ void rxFunc() {
     lcd_print(" REMOTE :  ACK  ");
     uiFunc(1);
     DEBUG_PRINTN(F("S? received"));
-    // Send exactly one status packet based on current starter state — no delay, no follow-up
+    // Brief hold: remote is already in RX before starter finishes processing
+    // (SF11 air time ~3 s >> processing time). 50 ms is a safe guard margin.
+    delay(50);
     if (bypassActive) {
       encryptNTx("[D2]");                          // bypass override active
       DEBUG_PRINTN(F("S? reply: D2 (bypass)"));
@@ -164,6 +170,7 @@ void rxFunc() {
       DEBUG_PRINTN(F("S? reply: 1F (motor OFF)"));
     }
     // loraAck intentionally NOT set — single immediate reply only, no deferred follow-up
+
   } else {
     DEBUG_PRINTN(F("CMD not found received"));
   }

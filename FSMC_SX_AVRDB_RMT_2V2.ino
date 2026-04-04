@@ -21,14 +21,11 @@
 #include "rxFunc.h"
 #include "decrypt.h"
 #include "sx1268Main.h"
-#include "pairNode.h"    // GW-side pairing state machine  (defines: pairNodeTick, enterPairNodeMode)
 #include "pairRemote.h"  // Remote-side pairing + dispatchPairPkt  (defines: pairRemoteTick, enterRemPairMode)
 // #include "userRow.h"  // AVR128DB User Row (DISABLED — uncomment to re-enable USERROW write)
 #include "menu.h"        // LCD menu (after pairing headers so it can access pair state vars)
-#include "iotData.h"
 #include "rfData.h"
 #include "simulaton.h"
-#include "serReader.h"
 
 /////////////////////////////////////////////
 /////////////////////////////////////////////
@@ -88,14 +85,8 @@ void loop() {
   motorStaCheck();
   modeM1();
   PowChecks();
-  readIotSerial();
-  iotDataSendVol(0);
-  AttribIotDatSendSend();
   sx1268Func();
-  pairNodeTick();    // GW pairing beacon / channel switch (must run after sx1268Func)
-  pairRemoteTick();  // Remote pairing scan / retry     (must run after pairNodeTick)
-  //motStatus2send(m1StaVars);
-  ackElst();
+  pairRemoteTick();  // Remote pairing scan / retry (must run after sx1268Func)
   rtcFetchTimeFunc();
   //ds3231_getTemperature();
   ////////////////

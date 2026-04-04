@@ -71,15 +71,16 @@ void loraTxFunc() {
       offCurrentForced = true;
     }
 
-    float Iavg          = (curRFilt + curYFilt + curBFilt) / 3.0f;
-    bool  motorStopped  = (!m1OffActive && Iavg < 0.5f);
-    bool  timedOut      = (millis() - offAckStartMs >= 10000UL);
+    bool  motorStopped  = (!m1OffActive && curIavgFilt < 0.5f);
+    bool  timedOut      = (millis() - offAckStartMs >= 3000UL); // 3 s — must be < remote retry window (~6 s)
 
     if (motorStopped || timedOut) {
       encryptNTx("[1F]");
       offAckPending    = 0;
       offAckStartMs    = 0;
       offCurrentForced = false;
+      // TX is now queued — safe to write EEPROM without delaying the ACK
+      if (pendingLastStateSave) { savecon(); pendingLastStateSave = false; }
     }
     return;   // Block normal ACK path while waiting
   }
@@ -135,6 +136,9 @@ void loraTxFunc() {
 
     // DEBUG_PRINT(F("Random Msg Sent: "));
     // DEBUG_PRINTLN(messages[idx]);
+
+      // TX is now queued — safe to write EEPROM without delaying the ACK
+      if (pendingLastStateSave) { savecon(); pendingLastStateSave = false; }
 
       // Reset state
       loraAck = 0;

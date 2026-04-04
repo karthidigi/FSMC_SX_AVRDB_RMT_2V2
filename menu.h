@@ -1,6 +1,5 @@
 #include "Arduino.h"
-// Forward declaration — iotDataSendVol is defined in iotData.h (included after menu.h)
-void iotDataSendVol(bool now);
+#include "hwSer.h"   // defines iotSerial (Serial1 stub) and debugSerial (Serial3)
 bool mlvl1 = 1;
 bool mlvl2 = 0;
 bool mlvl3 = 0;
@@ -276,7 +275,7 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
     // --- Increment / Decrement ---
     if (rotValPlus || rotValMinus) {
       menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
-      float delta = (rotValMinus ? 0.10 : -0.10);
+      float delta = (rotValMinus ? 0.5f : -0.5f);
 
       if (v1Selec) {
         tVal1 += delta;
@@ -760,6 +759,7 @@ void menuUi() {
         Serial3.print("menu mode normal: ");
         Serial3.println(storage.modeM1);
         savecon();
+        iotSerial.println("<{\"AT\":{\"a1ops\":\"" + String(storage.modeM1) + "\"}}>");
         loadModeVal();
         uiFunc(1);
         menuUiFunc = 0;
@@ -797,7 +797,8 @@ void menuUi() {
           iotSerial.println("<{\"TS\":{\"n\":\"2\"}}>");
           Serial3.println("<{\"AT\":{\"a1auDly\":\"" + String(storage.autoM1) + "\"}}>");
           savecon();
-          // Stop motor FIRST so the OFF-relay pulse starts before the countdown
+          iotSerial.println("<{\"AT\":{\"a1ops\":\"" + String(storage.modeM1) + "\"}}>");
+            // Stop motor FIRST so the OFF-relay pulse starts before the countdown
           // timer is stamped — mirrors the fix in toggleNormalAutoMode().
           if (m1StaVars) {
             m1Off();
@@ -857,7 +858,8 @@ void menuUi() {
             strncpy(storage.cyclicM1, tmpVal, sizeof(storage.cyclicM1) - 1);
             storage.cyclicM1[sizeof(storage.cyclicM1) - 1] = '\0';  // ensure null-termination
             savecon();
-            iotSerial.println("<{\"AT\":{\"a1cyc\":\"" + String(storage.cyclicM1) + "\"}}>");
+            iotSerial.println("<{\"AT\":{\"a1ops\":\"" + String(storage.modeM1) + "\"}}>");
+                iotSerial.println("<{\"AT\":{\"a1cyc\":\"" + String(storage.cyclicM1) + "\"}}>");
             delay(500);
             iotSerial.println("<{\"TS\":{\"n\":\"4\"}}>");
             Serial3.println("<{\"AT\":{\"a1cyc\":\"" + String(storage.cyclicM1) + "\"}}>");
@@ -901,7 +903,8 @@ void menuUi() {
           Serial3.print("a1Ctmr: ");
           Serial3.println(storage.countM1);
           savecon();
-          iotSerial.println("<{\"AT\":{\"a1cTmr\":\"" + String(storage.countM1) + "\"}}>");
+          iotSerial.println("<{\"AT\":{\"a1ops\":\"" + String(storage.modeM1) + "\"}}>");
+            iotSerial.println("<{\"AT\":{\"a1cTmr\":\"" + String(storage.countM1) + "\"}}>");
           delay(500);
           iotSerial.println("<{\"TS\":{\"n\":\"3\"}}>");
           Serial3.println("<{\"AT\":{\"a1cTmr\":\"" + String(storage.countM1) + "\"}}>");
@@ -926,6 +929,7 @@ void menuUi() {
         storage.modeM1 = 4;
         markLocalModeChange();
         savecon();
+        iotSerial.println("<{\"AT\":{\"a1ops\":\"" + String(storage.modeM1) + "\"}}>");
         loadModeVal();
         iotSerial.println("<{\"TS\":{\"n\":\"6\"}}>");
         lcd_set_cursor(0, 0);
@@ -959,7 +963,8 @@ void menuUi() {
           delay(500);
           iotSerial.println("<{\"TS\":{\"n\":\"5\"}}>");
           savecon();
-          loadModeVal();
+          iotSerial.println("<{\"AT\":{\"a1ops\":\"" + String(storage.modeM1) + "\"}}>");
+            loadModeVal();
           uiFunc(1);
           menuUiFunc = 0;
           lcd_modeShow();
@@ -1213,15 +1218,14 @@ void menuUi() {
       // ── SETTINGS mlvl3: CONFIGURE DEVICE sub-menu ─────────
       case 3210:
         {
-          // 4-item scrolling sub-menu under "CONFIGURE DEV"
-          static const char *const cfgLabels[4] = {
+          // 3-item scrolling sub-menu under "CONFIGURE DEV"
+          static const char *const cfgLabels[3] = {
             "-> PAIR REMOTE  ",
-            "-> PAIR GATEWAY ",
             "-> CONFIG WIFI  ",
             "-> [BACK]       "
           };
           uint8_t cfgSel = 0;
-          const uint8_t CFG_N = 4;
+          const uint8_t CFG_N = 3;
           unsigned long cfgTo = millis();
 
           while (1) {
@@ -1270,7 +1274,6 @@ void menuUi() {
             // ── PAIR REMOTE ──────────────────────────────────────────
             if (cfgSel == 0) {
               storage.remote[0] = '\0';
-              storage.rf_locked = 1;
               savecon();
               enterRemPairMode();  // LCD → "REM PAIRING... scanning..."
               {
@@ -1297,45 +1300,8 @@ void menuUi() {
               mainMenuShow();
               break;
 
-              // ── PAIR GATEWAY (independent — remote unaffected) ───────
-            } else if (cfgSel == 1) {
-              storage.gateway[0] = '\0';  // clear gateway only; remote stays intact
-              storage.rf_locked = 0;
-              savecon();
-              enterPairNodeMode();  // LCD → "GW  PAIRING... beaconing..."
-              {
-                unsigned long pairStart = millis();
-                bool cancelled = false;
-                while (pairNodeState != PAIR_NODE_IDLE) {
-                  wdt_reset();
-                  sx1268Func();
-                  pairNodeTick();
-                  if (takeMenuPress()) {
-                    cancelled = true;
-                    break;
-                  }
-                  if (millis() - pairStart >= 90000UL) {
-                    cancelled = true;
-                    break;
-                  }
-                  delay(5);
-                }
-                if (cancelled) {
-                  switchToOperationalChannel();
-                  pairNodeState = PAIR_NODE_IDLE;
-                  wdt_reset();
-                  delay(1000);
-                  mainMenuShow();
-                  break;
-                }
-              }
-              wdt_reset();
-              delay(2000);
-              mainMenuShow();
-              break;
-
               // ── CONFIG WIFI (send CP then reset ESP32) ───────────────
-            } else if (cfgSel == 2) {
+            } else if (cfgSel == 1) {
               lcd_set_cursor(0, 0);
               lcd_print(" Config WiFi... ");
               lcd_set_cursor(1, 0);
@@ -1541,7 +1507,7 @@ void menuUi() {
         {
           // Horizontal selector: UP=ON  DOWN=OFF  ENTER=confirm  MENU=cancel
           // Initial cursor: reflect current relay state
-          uint8_t swSel = (digitalRead(PIN_LiREL) == HIGH) ? 1 : 0; // 0=ON, 1=OFF
+          uint8_t swSel = (digitalRead(PIN_LiREL) == HIGH) ? 0 : 1; // HIGH=relay ON→swSel0, LOW=relay OFF→swSel1
           unsigned long selfDestruct = millis();
 
           auto drawLightSwitch = [&]() {
@@ -1579,13 +1545,11 @@ void menuUi() {
               if (swSel == 0) {
                 digitalWrite(PIN_LiREL, HIGH);
                 if (storage.app2Run != 1) { storage.app2Run = 1; savecon(); }
-                iotDataSendVol(true);
                 lcd_set_cursor(0, 0); lcd_print("  Light Switch  ");
                 lcd_set_cursor(1, 0); lcd_print("   Turned  ON   ");
               } else {
                 digitalWrite(PIN_LiREL, LOW);
                 if (storage.app2Run != 0) { storage.app2Run = 0; savecon(); }
-                iotDataSendVol(true);
                 lcd_set_cursor(0, 0); lcd_print("  Light Switch  ");
                 lcd_set_cursor(1, 0); lcd_print("   Turned OFF   ");
               }

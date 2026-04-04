@@ -267,14 +267,14 @@ void forceCurrentUpdate() {
 }
 
 void emonFunc() {
-  // Pause energy measurement while the settings menu is active.
+  // Pause energy measurement while the settings menu or MODE hold is active.
   // The ADC ISR runs at 16 000 Hz during measurement; that interrupt load
   // disrupts the 30 ms button debounce and makes button presses unreliable.
   // Stopping the measurement lets refreshButtonAdcSample() use a clean
   // dedicated single-shot ADC conversion instead of sharing with the ISR.
   // Motor protection continues unaffected — fault checks keep running with
   // the last-known voltage/current values (valid over the senseTime window).
-  if (menuUiFunc) {
+  if (menuUiFunc || modeHoldInProgress) {
     if (measuring) stop_measurement();   // clean stop if mid-measurement
     return;
   }

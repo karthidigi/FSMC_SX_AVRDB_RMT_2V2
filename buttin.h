@@ -19,6 +19,7 @@ volatile bool rotPush = 0;
 volatile bool btnMenuPress = 0;
 volatile bool btnModePress = 0;
 bool menuUiFunc = 0;
+bool modeHoldInProgress = false;   // set true during 5-s MODE hold; pauses emon ADC ISR
 extern volatile uint16_t ladderBtnAdcRaw;
 void refreshButtonAdcSample();
 
@@ -34,10 +35,20 @@ static const uint16_t ADC_NONE_MIN = 3900;
 static const uint16_t ADC_MENU_MAX = 400;
 static const uint16_t ADC_UP_CENTER = 832;
 static const uint16_t ADC_DOWN_CENTER = 1656;
-static const uint16_t ADC_ENTER_CENTER = 2455;
+static const uint16_t ADC_ENTER_CENTER = 2430;
 static const uint16_t ADC_MODE_CENTER = 3290;
 static const uint16_t ADC_TOL = 220;
 static const uint16_t ADC_HYS = 320;
+
+// ── RC-filter settling support ──────────────────────────────────────────────
+// A 47 nF cap on PD6 (ADC pin) slows the voltage transition when a button is
+// released.  The rising voltage drifts through other buttons' ADC windows,
+// potentially spending > 30 ms there and triggering false presses.
+// BTN_SETTLE_MS must be ≥ 5 × R_thevenin × 47 nF.
+// For a ~300 kΩ Thevenin source: 5τ ≈ 70 ms → 100 ms gives a safe margin.
+// Increase this constant if phantom presses still occur.
+static const uint16_t BTN_SETTLE_MS  = 100;
+static unsigned long  btnSettleUntil = 0;   // no new press accepted before this time
 
 uint16_t getButtonAdcRaw() {
   return btnLastAdc;
@@ -45,6 +56,10 @@ uint16_t getButtonAdcRaw() {
 
 bool isEnterButtonDown() {
   return btnStable == BTN_ENTER;
+}
+
+bool isModeButtonDown() {
+  return btnStable == BTN_MODE;
 }
 
 bool takeMenuPress() {
@@ -174,12 +189,13 @@ static void onButtonReleased(ButtonId button, unsigned long now) {
 }
 
 void rotaryInit() {
-  btnCandidate = BTN_NONE;
-  btnStable = BTN_NONE;
+  btnCandidate    = BTN_NONE;
+  btnStable       = BTN_NONE;
   btnDebounceMillis = millis();
-  enterPressMillis = 0;
-  modePressMillis = 0;
-  btnLastAdc = 4095;
+  enterPressMillis  = 0;
+  modePressMillis   = 0;
+  btnLastAdc        = 4095;
+  btnSettleUntil    = 0;
   clearNavEvents();
 }
 
@@ -198,13 +214,41 @@ void rotaryFunc() {
 
   if ((now - btnDebounceMillis) >= 30 && sampled != btnStable) {
     ButtonId prev = btnStable;
-    btnStable = sampled;
+    ButtonId next = sampled;
 
-    if (prev != BTN_NONE && prev != btnStable) {
+    // ── RC-filter guard (47 nF cap on ADC pin) ─────────────────────────────
+    // On button release the cap charges slowly through the ladder impedance.
+    // The voltage drifts through intermediate ADC windows, potentially
+    // registering phantom presses for buttons not physically touched.
+    //
+    // Rule 1 — No button-to-button without BTN_NONE:
+    //   If prev and next are both non-NONE the ADC is still in the RC settle
+    //   region.  Treat this as a release of prev only; suppress next entirely.
+    if (prev != BTN_NONE && next != BTN_NONE) {
+      btnStable      = BTN_NONE;
+      btnSettleUntil = now + BTN_SETTLE_MS;
       onButtonReleased(prev, now);
+      return;   // do NOT register next — debounce timer stays expired so
+                // the settle-window check fires on every subsequent call
     }
-    if (btnStable != BTN_NONE && prev != btnStable) {
-      onButtonPressed(btnStable);
+
+    // Rule 2 — Post-release settling window:
+    //   After any release, gate new press detection for BTN_SETTLE_MS so the
+    //   cap has time to reach the resting voltage (ADC ≥ ADC_NONE_MIN) before
+    //   a legitimate new press is accepted.
+    if (next != BTN_NONE && (long)(btnSettleUntil - now) > 0) {
+      return;   // still settling — debounce stays expired, re-checked every call
+    }
+    // ───────────────────────────────────────────────────────────────────────
+
+    btnStable = next;
+
+    if (prev != BTN_NONE) {
+      onButtonReleased(prev, now);
+      btnSettleUntil = now + BTN_SETTLE_MS;   // arm settle window on every release
+    }
+    if (next != BTN_NONE) {
+      onButtonPressed(next);
     }
   }
 }

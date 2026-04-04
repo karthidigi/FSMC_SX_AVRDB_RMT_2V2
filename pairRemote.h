@@ -8,12 +8,11 @@
 //   pairRemHandleDone()    → on 0x0F: save storage.remote, switchToOperationalChannel()
 //
 // ALSO defines dispatchPairPkt() — the single binary-packet entry point on the Starter.
-// Must be included AFTER pairNode.h (calls pairNodeHandleAck defined there).
 //
 // Requires (included before via .ino):
 //   sx1268Main.h  → switchToPairChannel() / switchToOperationalChannel() / send_lora_data()
+//                   g_operSyncMsb / g_operSyncLsb (dynamic sync word)
 //   storage.h     → storage.remote / savecon()
-//   pairNode.h    → pairNodeHandleAck()
 //   lcdDisp.h     → lcd_set_cursor() / lcd_print()
 //   debug.h       → DEBUG_PRINT / DEBUG_PRINTN
 //   aesMain.h     → hwSerialKey[21]
@@ -66,9 +65,11 @@ static void pairRemLcdTimeout() {
 }
 
 // ── Build and send 0x0E REM_PAIR_ACK ─────────────────────────────────────────
-// [0x0E][starter_id:20][sf:1][bwCode:1][cr:1][preamble:1][txPow:1] = 26 bytes
+// [0x0E][starter_id:20][sf:1][bwCode:1][cr:1][preamble:1][txPow:1][syncMsb:1][syncLsb:1] = 28 bytes
+// Bytes 26-27 carry the dynamic operational sync word so the Remote can apply
+// the same channel as this Starter without any hardcoded constant.
 static void pairRemSendAck() {
-    uint8_t pkt[26];
+    uint8_t pkt[28];
     pkt[0]  = PKT_REM_PAIR_ACK;           // 0x0E
     memcpy(&pkt[1], hwSerialKey, 20);      // starter chip serial as starter_id
     pkt[21] = OPER_SF;
@@ -76,8 +77,10 @@ static void pairRemSendAck() {
     pkt[23] = OPER_CR;
     pkt[24] = OPER_PREAMBLE;
     pkt[25] = OPER_TX_POWER;
-    send_lora_data(pkt, 26);
-    DEBUG_PRINTN("PairRem: REM_PAIR_ACK sent");
+    pkt[26] = g_operSyncMsb;              // dynamic sync word MSB
+    pkt[27] = g_operSyncLsb;              // dynamic sync word LSB
+    send_lora_data(pkt, 28);
+    DEBUG_PRINTN("PairRem: REM_PAIR_ACK sent (dyn sync)");
 }
 
 // ── enterRemPairMode() ────────────────────────────────────────────────────────
@@ -117,9 +120,8 @@ void pairRemHandleReq(const uint8_t* buf, uint8_t len) {
 
     // Provision remote serial as soon as REQ is validated so a missing 0x0F
     // does not leave operational AES peer unset.
-    if ((strncmp(storage.remote, pairRemSerial, 20) != 0) || (storage.rf_locked == 0)) {
+    if (strncmp(storage.remote, pairRemSerial, 20) != 0) {
         memcpy(storage.remote, pairRemSerial, 21);
-        storage.rf_locked = 1;
         savecon();
         DEBUG_PRINT("PairRem: provisioned remote from REQ: ");
         DEBUG_PRINTN(storage.remote);
@@ -153,7 +155,6 @@ void pairRemHandleDone(const uint8_t* buf, uint8_t len) {
 
     // Persist remote serial to storage
     memcpy(storage.remote, pairRemSerial, 21);
-    storage.rf_locked = 1;
     savecon();
     DEBUG_PRINT("PairRem: Remote paired & saved: ");
     DEBUG_PRINTN(storage.remote);
@@ -236,15 +237,10 @@ void pairRemoteTick() {
 }
 
 // ── dispatchPairPkt() ─────────────────────────────────────────────────────────
-// Single entry point for ALL binary pairing packets on the STARTER.
+// Single entry point for Remote pairing packets on the STARTER.
 // Called from sx1268Main.h STATE_RX_WAIT when rx_buffer[0] is in 0x0A-0x0F range.
-// Defined here (after pairNode.h) so both pairNodeHandleAck and pairRemHandleReq
-// are already visible.
 void dispatchPairPkt(const uint8_t* buf, uint8_t len) {
     switch (buf[0]) {
-        case PKT_PAIR_ACK:       // 0x0B — Gateway → Starter
-            pairNodeHandleAck(buf, len);
-            break;
         case PKT_REM_PAIR_REQ:   // 0x0D — Remote → Starter
             pairRemHandleReq(buf, len);
             break;

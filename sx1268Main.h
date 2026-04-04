@@ -23,6 +23,38 @@
 
 volatile bool dio1_triggered = false;
 
+// ── Dynamic operational sync word ────────────────────────────────────────────
+// Derived from the full 20-char chip serial using a rotate-XOR hash.
+// AVR128DB48 serials all share a "4240" prefix — hashing all 10 bytes ensures
+// the unique tail bytes (positions 4-19) dominate the output so each
+// installation gets a different sync word and starters cannot cross-talk.
+// Sent to the Remote in bytes [26-27] of the 0x0E PKT_REM_PAIR_ACK packet.
+uint8_t g_operSyncMsb = OPER_SYNC_MSB;  // default until derived
+uint8_t g_operSyncLsb = OPER_SYNC_LSB;
+
+// Hash all 10 bytes of the 20-char hex serial into 2 independent bytes.
+// Two accumulators rotate in opposite directions so that identical prefix
+// bytes ("4240") produce different partial states in each accumulator,
+// and the unique suffix bytes resolve to a distinct (msb, lsb) pair.
+static void initOperSyncWord() {
+    uint8_t msb = 0xA5, lsb = 0x5A;  // asymmetric non-zero seeds
+    for (uint8_t i = 0; i < 20; i += 2) {
+        uint8_t b = (fromHexChar(hwSerialKey[i]) << 4) | fromHexChar(hwSerialKey[i + 1]);
+        msb = ((msb << 1) | (msb >> 7)) ^ b;   // rotate-left  1, XOR byte
+        lsb = ((lsb >> 1) | (lsb << 7)) ^ b;   // rotate-right 1, XOR byte
+    }
+    // Sanitize: avoid LoRaWAN public sync (0x34,0x44) and null bytes
+    if (msb == 0x34 && lsb == 0x44) { lsb ^= 0x11; }
+    if (msb == 0x00) msb = 0x10;
+    if (lsb == 0x00) lsb = 0x04;
+    g_operSyncMsb = msb;
+    g_operSyncLsb = lsb;
+    DEBUG_PRINT("DynSync: 0x");
+    DEBUG_PRINT(g_operSyncMsb, HEX);
+    DEBUG_PRINT(" 0x");
+    DEBUG_PRINTN(g_operSyncLsb, HEX);
+}
+
 // ────────────────────────────────────────────────
 // Forward declarations
 // ────────────────────────────────────────────────
@@ -31,7 +63,6 @@ void sx1268Init();
 void sx1268Func();
 void switchToPairChannel();
 void switchToOperationalChannel();
-void switchToOperationalChannelParams(uint8_t sf, uint8_t bw, uint8_t cr, uint16_t preamble, int8_t txPower);
 // dispatchPairPkt is defined in pairRemote.h (included after sx1268Main.h)
 void dispatchPairPkt(const uint8_t* buf, uint8_t len);
 
@@ -129,46 +160,26 @@ void switchToPairChannel() {
     DEBUG_PRINTN("Radio: switched to PAIR channel (SF7/BW125/0x1234)");
 }
 
-// Switch to default operational profile from zSettings.h
+// Switch to operational channel using compiled-in params + dynamic sync word.
 void switchToOperationalChannel() {
-    switchToOperationalChannelParams(OPER_SF, OPER_BW, OPER_CR, OPER_PREAMBLE, OPER_TX_POWER);
-}
-
-// Switch using negotiated operational params (e.g. from GW pairing ACK).
-void switchToOperationalChannelParams(uint8_t sf, uint8_t bw, uint8_t cr, uint16_t preamble, int8_t txPower) {
-    // Defensive bounds so malformed ACK bytes cannot break radio config.
-    if (sf < 5 || sf > 12) sf = OPER_SF;
-    if (bw != SX1268_BW_125000 && bw != SX1268_BW_250000 && bw != SX1268_BW_500000) bw = OPER_BW;
-    if (cr < SX1268_CR_4_5 || cr > SX1268_CR_4_8) cr = OPER_CR;
-    if (preamble == 0) preamble = OPER_PREAMBLE;
-    if (txPower < 2) txPower = 2;
-    if (txPower > 22) txPower = 22;
-
-    uint8_t ldro = sx1268CalcLdro(sf, bw);
+    uint8_t ldro = sx1268CalcLdro(OPER_SF, OPER_BW);
     SX1268_setStandby(SX1268_STANDBY_RC);
-    SX1268_setModulationParamsLoRa(sf, bw, cr, ldro);
-    SX1268_setPacketParamsLoRa(preamble, SX1268_HEADER_EXPLICIT, 32,
+    SX1268_setModulationParamsLoRa(OPER_SF, OPER_BW, OPER_CR, ldro);
+    SX1268_setPacketParamsLoRa(OPER_PREAMBLE, SX1268_HEADER_EXPLICIT, 32,
                                SX1268_CRC_ON, SX1268_IQ_STANDARD);
     // SX126x errata: re-apply IQ register after every setPacketParams call
     SX1268_fixInvertedIq(SX1268_IQ_STANDARD);
-    uint8_t sw[2] = { OPER_SYNC_MSB, OPER_SYNC_LSB };
+    uint8_t sw[2] = { g_operSyncMsb, g_operSyncLsb };
     SX1268_writeRegister(SX1268_REG_LORA_SYNC_WORD_MSB, sw, 2);
-    SX1268_setTxParams(txPower, SX1268_PA_RAMP_200U);
+    SX1268_setTxParams(OPER_TX_POWER, SX1268_PA_RAMP_200U);
     SX1268_clearIrqStatus(SX1268_IRQ_ALL);
     dio1_triggered   = false;
     radio_state      = STATE_IDLE;
     state_start_time = millis();
     pairing_mode     = false;  // operational: AES-encrypted packets only
-    DEBUG_PRINT("Radio: switched to OPER channel sf=");
-    DEBUG_PRINT(sf);
-    DEBUG_PRINT(" bw=");
-    DEBUG_PRINT(bw);
-    DEBUG_PRINT(" cr=");
-    DEBUG_PRINT(cr);
-    DEBUG_PRINT(" pre=");
-    DEBUG_PRINT(preamble);
-    DEBUG_PRINT(" pwr=");
-    DEBUG_PRINTN(txPower);
+    DEBUG_PRINT("Radio: switched to OPER channel sync=0x");
+    DEBUG_PRINT(g_operSyncMsb, HEX);
+    DEBUG_PRINTN(g_operSyncLsb, HEX);
 }
 
 // ────────────────────────────────────────────────
@@ -176,6 +187,10 @@ void switchToOperationalChannelParams(uint8_t sf, uint8_t bw, uint8_t cr, uint16
 // ────────────────────────────────────────────────
 void sx1268Init() {
     DEBUG_PRINTN("SX1268 Init Start");
+
+    // Derive dynamic sync word from this starter's chip serial (hwSerialKey must
+    // already be populated by getDeviceSerId() before sx1268Init() is called).
+    initOperSyncWord();
 
     // Select SPI pin mapping (PA4=MOSI, PA5=MISO, PA6=SCK on AVR128DB48)
     SPI.pins(SX1268_MOSI, SX1268_MISO, SX1268_SCK);
@@ -236,6 +251,11 @@ uint32_t rfFreq = ((uint64_t)867000000UL << SX1268_RF_FREQUENCY_SHIFT) / SX1268_
 
     // PA config: high-power path, 22 dBm (SX1262/SX1268)
     SX1268_setPaConfig(0x04, 0x07, 0x00, 0x01);
+    // OCP: MUST be set to 0x38 (140 mA) for SX1262/SX1268 HP path (datasheet §13.4.4).
+    // Reset default is 0x18 (60 mA) which current-starves the PA at 22 dBm, silently
+    // reducing actual TX power by several dBm and killing range.
+    uint8_t ocp = 0x38;
+    SX1268_writeRegister(SX1268_REG_OCP_CONFIGURATION, &ocp, 1);
 
     // TX params: 22 dBm, 200 µs ramp time
     SX1268_setTxParams(22, SX1268_PA_RAMP_200U);
@@ -262,9 +282,8 @@ uint32_t rfFreq = ((uint64_t)867000000UL << SX1268_RF_FREQUENCY_SHIFT) / SX1268_
     SX1268_fixInvertedIq(SX1268_IQ_STANDARD);
     DEBUG_PRINTN("Pkt params OK");
 
-    // Sync word: private LoRa network (0x12) → SX126x 2-byte encoding {0x14, 0x24}
-    // (public network would be {0x34, 0x44})
-    uint8_t sw[2] = { OPER_SYNC_MSB, OPER_SYNC_LSB };
+    // Sync word: dynamic value derived from this starter's serial (initOperSyncWord above)
+    uint8_t sw[2] = { g_operSyncMsb, g_operSyncLsb };
     SX1268_writeRegister(SX1268_REG_LORA_SYNC_WORD_MSB, sw, 2);
     DEBUG_PRINTN("Operational sync loaded");
 
@@ -404,7 +423,7 @@ void sx1268Func() {
                         // encrypted ACK whose first byte is 0x0A-0x0F would be silently
                         // misrouted to dispatchPairPkt() and rxFunc() would never run.
                         if (pairing_mode &&
-                            rx_buffer[0] >= PKT_PAIR_REQ &&
+                            rx_buffer[0] >= PKT_REM_PAIR_REQ &&
                             rx_buffer[0] <= PKT_REM_PAIR_DONE) {
                             DEBUG_PRINT(F("→ PAIR pkt 0x"));
                             DEBUG_PRINTN(rx_buffer[0], HEX);
@@ -470,14 +489,14 @@ void sx1268Func() {
         }
     }
 
-    // Watchdog: full re-init if radio is silent for WATCHDOG_PERIOD
-    if (millis() - last_radio_activity > WATCHDOG_PERIOD) {
-        DEBUG_PRINTN("Radio watchdog reset");
-        PORTC.PIN4CTRL = PORT_ISC_INTDISABLE_gc;   // disable PC4 IRQ before reset
-        SX1268_reset(SX1268_RESET_PIN);
-        sx1268Init();
-        last_radio_activity = millis();
-    }
+    // // Watchdog: full re-init if radio is silent for WATCHDOG_PERIOD
+    // if (millis() - last_radio_activity > WATCHDOG_PERIOD) {
+    //     DEBUG_PRINTN("Radio watchdog reset");
+    //     PORTC.PIN4CTRL = PORT_ISC_INTDISABLE_gc;   // disable PC4 IRQ before reset
+    //     SX1268_reset(SX1268_RESET_PIN);
+    //     sx1268Init();
+    //     last_radio_activity = millis();
+    // }
 }
 
 #endif // SX1268_MAIN_H
