@@ -233,54 +233,61 @@ void rotaryInit() {
 void rotaryFunc() {
   refreshButtonAdcSample();
 
-  uint16_t raw = ((uint16_t)ladderBtnAdcRaw);
+  uint16_t raw = (uint16_t)ladderBtnAdcRaw;
   btnLastAdc = raw;
   ButtonId sampled = decodeButton(raw);
   unsigned long now = millis();
 
-  if (sampled != btnCandidate) {
-    btnCandidate = sampled;
+  // ── PRESS: fire immediately on first non-NONE sample ───────────────────
+  // The main loop is slow (LoRa, emon, etc.) so rotaryFunc() may only be
+  // called every 30–80 ms.  A time-based debounce on the press side resets
+  // its timer whenever 'sampled' changes — if the user taps and releases
+  // between two calls the debounce never fires and the press is lost.
+  //
+  // Solution: accept any non-NONE sample as a press immediately (after the
+  // settle gate clears).  The settle gate already guards against RC-filter
+  // phantom presses after a release.  Hardware bounce (<5 ms) is not a
+  // concern at the poll rates we operate at.
+  if (btnStable == BTN_NONE && sampled != BTN_NONE) {
+    if ((long)(btnSettleUntil - now) > 0) {
+      return;  // RC settle gate active — ignore until cap charges back up
+    }
+    btnStable         = sampled;
+    btnCandidate      = sampled;
     btnDebounceMillis = now;
+    onButtonPressed(sampled);
+    return;
   }
 
-  if ((now - btnDebounceMillis) >= 30 && sampled != btnStable) {
-    ButtonId prev = btnStable;
-    ButtonId next = sampled;
-
-    // ── RC-filter guard (47 nF cap on ADC pin) ─────────────────────────────
-    // On button release the cap charges slowly through the ladder impedance.
-    // The voltage drifts through intermediate ADC windows, potentially
-    // registering phantom presses for buttons not physically touched.
-    //
-    // Rule 1 — No button-to-button without BTN_NONE:
-    //   If prev and next are both non-NONE the ADC is still in the RC settle
-    //   region.  Treat this as a release of prev only; suppress next entirely.
-    if (prev != BTN_NONE && next != BTN_NONE) {
+  // ── RELEASE: debounce NONE for 30 ms ───────────────────────────────────
+  // Debounce is kept only on the release side to prevent brief ADC glitches
+  // (or hysteresis wobble at the window edge) from prematurely ending a hold.
+  if (btnStable != BTN_NONE) {
+    if (sampled == BTN_NONE) {
+      if (btnCandidate != BTN_NONE) {
+        // First NONE sample after a press — start release debounce timer
+        btnCandidate      = BTN_NONE;
+        btnDebounceMillis = now;
+      }
+      if ((now - btnDebounceMillis) >= 30) {
+        // NONE stable for 30 ms → confirmed release
+        ButtonId prev  = btnStable;
+        btnStable      = BTN_NONE;
+        btnCandidate   = BTN_NONE;
+        btnSettleUntil = now + BTN_SETTLE_MS;  // arm RC settle gate
+        onButtonReleased(prev, now);
+      }
+    } else if (sampled != btnStable) {
+      // Button-to-button transition without NONE: RC cap still charging.
+      // Release the current button and arm the settle gate; do NOT register
+      // the intermediate button as a new press.
+      ButtonId prev  = btnStable;
       btnStable      = BTN_NONE;
+      btnCandidate   = BTN_NONE;
       btnSettleUntil = now + BTN_SETTLE_MS;
       onButtonReleased(prev, now);
-      return;   // do NOT register next — debounce timer stays expired so
-                // the settle-window check fires on every subsequent call
     }
-
-    // Rule 2 — Post-release settling window:
-    //   After any release, gate new press detection for BTN_SETTLE_MS so the
-    //   cap has time to reach the resting voltage (ADC ≥ ADC_NONE_MIN) before
-    //   a legitimate new press is accepted.
-    if (next != BTN_NONE && (long)(btnSettleUntil - now) > 0) {
-      return;   // still settling — debounce stays expired, re-checked every call
-    }
-    // ───────────────────────────────────────────────────────────────────────
-
-    btnStable = next;
-
-    if (prev != BTN_NONE) {
-      onButtonReleased(prev, now);
-      btnSettleUntil = now + BTN_SETTLE_MS;   // arm settle window on every release
-    }
-    if (next != BTN_NONE) {
-      onButtonPressed(next);
-    }
+    // else sampled == btnStable: still held, nothing to do
   }
 }
 

@@ -5,9 +5,9 @@
 // Number of items in the scrollable status screen.
 // When ENABLE_RTC is defined a Date/Time item (index 7) is appended.
 #ifdef ENABLE_RTC
-  #define STATUS_SCREEN_ITEMS 7   // Mode, DryRun, Overload, OverVolt, UnderVolt, Name, DateTime
+  #define STATUS_SCREEN_ITEMS 9   // Mode, DryRun, Overload, OverVolt, UnderVolt, OpenWire, Leakage, Name, DateTime
 #else
-  #define STATUS_SCREEN_ITEMS 6   // Mode, DryRun, Overload, OverVolt, UnderVolt, Name
+  #define STATUS_SCREEN_ITEMS 8   // Mode, DryRun, Overload, OverVolt, UnderVolt, OpenWire, Leakage, Name
 #endif
 
 // ========== Globals ==========
@@ -551,14 +551,16 @@ static void toggleNormalAutoMode() {
   lcd_modeShow();
 }
 static void showStatusScreenItem(uint8_t itemIndex) {
-  // Status List order (per spec v15):
+  // Status List order:
   // 0 = Current Mode
   // 1 = Dry Run Setting
   // 2 = Overload Setting
   // 3 = Over Volt Setting
   // 4 = Under Volt Setting
-  // 5 = Device Name
-  // 6 = Date and Time (RTC, if ENABLE_RTC)
+  // 5 = Open Wire Threshold
+  // 6 = Leakage % Threshold
+  // 7 = Device Name
+  // 8 = Date and Time (RTC, if ENABLE_RTC)
   char b1[8];
 
   switch (itemIndex) {
@@ -612,6 +614,24 @@ static void showStatusScreenItem(uint8_t itemIndex) {
       break;
 
     case 5:
+      dtostrf(storage.openWireThA, 4, 1, b1);
+      lcd_set_cursor(0, 0);
+      lcd_print("Open Wire Set:  ");
+      lcd_set_cursor(1, 0);
+      snprintf(lcd_buf, sizeof(lcd_buf), "%s A            ", b1);
+      lcd_print(lcd_buf);
+      break;
+
+    case 6:
+      dtostrf(storage.leakagePct, 4, 1, b1);
+      lcd_set_cursor(0, 0);
+      lcd_print("Leakage Set:    ");
+      lcd_set_cursor(1, 0);
+      snprintf(lcd_buf, sizeof(lcd_buf), "%s %%            ", b1);
+      lcd_print(lcd_buf);
+      break;
+
+    case 7:
     default:
       lcd_set_cursor(0, 0);
       lcd_print("Device Name:    ");
@@ -621,7 +641,7 @@ static void showStatusScreenItem(uint8_t itemIndex) {
       break;
 
 #ifdef ENABLE_RTC
-    case 6:
+    case 8:
       if (rtcPassVars) {
         snprintf(lcd_buf, sizeof(lcd_buf), "  %02d-%02d-%02d %s  ",
                  tDate, tMonth, tYear, sDoW);
@@ -1083,9 +1103,9 @@ void uiFunc(bool lx) {
     // Auto-refresh item 6 (Date/Time) every 1 s so seconds tick live
     {
       static unsigned long rtcItemRefreshMillis = 0;
-      if (statusScreenIndex == 6 && (now - rtcItemRefreshMillis) >= 1000UL) {
+      if (statusScreenIndex == 8 && (now - rtcItemRefreshMillis) >= 1000UL) {
         rtcItemRefreshMillis = now;
-        showStatusScreenItem(6);
+        showStatusScreenItem(8);
       }
     }
 #endif

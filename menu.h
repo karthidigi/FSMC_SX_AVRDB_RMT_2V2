@@ -1130,7 +1130,7 @@ void menuUi() {
         break;
       case 2610:
         var3 = storage.openWireThA;
-        if (get1VaFloatFun("OpnWire", var3, 'A', 0.1, 1.5)) {
+        if (get1VaFloatFun("OpnWire", var3, 'A', 0.1, 5.0)) {
           storage.openWireThA = var3;
           savecon();
           uiFunc(1);

@@ -206,12 +206,11 @@ void openWireCheck() {
   static unsigned long owClearMs = 0;
 
   float Iavg = curIavgFilt;
-  // Clamp owTh to a physically valid range (0.1–1.5 A).
-  // Upper bound 1.5 A is below any normal running current — this prevents
-  // garbage EEPROM bytes (from old firmware layouts) from setting owTh at
-  // or above the actual phase current and causing false open-wire trips.
+  // Clamp owTh to a physically valid range (0.1–5.0 A).
+  // Upper bound 5.0 A matches the maximum user-settable value in the PRESET menu.
+  // The clamp prevents garbage EEPROM bytes from setting owTh far out of range.
   float owTh = 1.0f;
-  if (storage.openWireThA > 0.0f && storage.openWireThA < 1.5f) {
+  if (storage.openWireThA > 0.0f && storage.openWireThA <= 5.0f) {
     owTh = storage.openWireThA;
   }
   float Imin   = min(curRFilt, min(curYFilt, curBFilt));
