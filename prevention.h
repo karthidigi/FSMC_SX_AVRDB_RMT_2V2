@@ -206,10 +206,16 @@ void openWireCheck() {
   static unsigned long owClearMs = 0;
 
   float Iavg = curIavgFilt;
-  float owTh = (storage.openWireThA > 0.0f) ? storage.openWireThA : 1.0f;
-  bool anyLow = (curRFilt <= owTh ||
-                 curYFilt <= owTh ||
-                 curBFilt <= owTh);
+  // Clamp owTh to a physically valid range (0.1–1.5 A).
+  // Upper bound 1.5 A is below any normal running current — this prevents
+  // garbage EEPROM bytes (from old firmware layouts) from setting owTh at
+  // or above the actual phase current and causing false open-wire trips.
+  float owTh = 1.0f;
+  if (storage.openWireThA > 0.0f && storage.openWireThA < 1.5f) {
+    owTh = storage.openWireThA;
+  }
+  float Imin   = min(curRFilt, min(curYFilt, curBFilt));
+  bool anyLow  = (Imin < owTh);   // strict < : phase at exactly threshold is not an open wire
 
   if (m1StaVars && (millis() - m1OnBuffMillis >= 1000)) {
     if (anyLow && Iavg > OPEN_WIRE_IAVG_MIN_A) {

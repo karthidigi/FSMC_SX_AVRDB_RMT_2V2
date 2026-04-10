@@ -617,7 +617,7 @@ bool get1ValFuncS1(String ValName, uint8_t &v1, char x, int xT, int yT) {
 
 static int maxMlvl2OffsetForGroup(int groupBase) {
   if (groupBase == 1000) return 700;  // MODES:         1100..1700
-  if (groupBase == 2000) return 600;  // PRESET:        2100..2600
+  if (groupBase == 2000) return 800;  // PRESET:        2100..2800
   if (groupBase == 3000) return 800;  // SETTINGS:      3100..3800 (Light Switch moved to main menu)
   if (groupBase == 4000) return 100;  // CONTACT:       4100
   if (groupBase == 5000) return 100;  // ABOUT DEVICE:  5100
@@ -1108,7 +1108,7 @@ void menuUi() {
         lcd_set_cursor(0, 0);
         lcd_print("-> SENSE TIME   ");
         lcd_set_cursor(1, 0);
-        lcd_print("   [ BACK ]     ");
+        lcd_print("   SET OPENWIRE ");
         break;
       case 2510:
         {
@@ -1126,9 +1126,43 @@ void menuUi() {
         lcd_set_cursor(0, 0);
         lcd_print("   SENSE TIME   ");
         lcd_set_cursor(1, 0);
-        lcd_print("-> [ BACK ]     ");
+        lcd_print("->SET OPENWIRE  ");
         break;
       case 2610:
+        var3 = storage.openWireThA;
+        if (get1VaFloatFun("OpnWire", var3, 'A', 0.1, 1.5)) {
+          storage.openWireThA = var3;
+          savecon();
+          uiFunc(1);
+          menuUiFunc = 0;
+          lcd_modeShow();
+        }
+        break;
+
+      case 2700:
+        lcd_set_cursor(0, 0);
+        lcd_print("   SET OPENWIRE ");
+        lcd_set_cursor(1, 0);
+        lcd_print("->SET LEAKAGE % ");
+        break;
+      case 2710:
+        var3 = storage.leakagePct;
+        if (get1VaFloatFun("Leakage", var3, '%', 10.0, 50.0)) {
+          storage.leakagePct = var3;
+          savecon();
+          uiFunc(1);
+          menuUiFunc = 0;
+          lcd_modeShow();
+        }
+        break;
+
+      case 2800:
+        lcd_set_cursor(0, 0);
+        lcd_print("   SET LEAKAGE %");
+        lcd_set_cursor(1, 0);
+        lcd_print("-> [ BACK ]     ");
+        break;
+      case 2810:
         menuUiFunc = 0;
         uiFunc(0);
         return;

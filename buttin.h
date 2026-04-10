@@ -35,22 +35,42 @@ static const uint16_t MODE_CLICK_MAX_MS   = 1000;
 // Hardware idle floor is ~3870–4004 (measured). Set to 3750 to stay safely
 // below the floor while remaining well above MODE_MAX (3510 = 3290+220).
 static const uint16_t ADC_NONE_MIN = 3750;
-static const uint16_t ADC_MENU_MAX = 400;
-static const uint16_t ADC_UP_CENTER = 832;
-static const uint16_t ADC_DOWN_CENTER = 1656;
-static const uint16_t ADC_ENTER_CENTER = 2467;
-static const uint16_t ADC_MODE_CENTER = 3290;
-static const uint16_t ADC_TOL = 220;
-static const uint16_t ADC_HYS = 320;
+static const uint16_t ADC_MENU_MAX    = 400;   // MENU reads ~0   (measured)
+static const uint16_t ADC_UP_CENTER   = 821;   // UP    reads ~821 (measured)
+static const uint16_t ADC_DOWN_CENTER = 1693;  // DOWN  reads ~1693(measured)
+static const uint16_t ADC_ENTER_CENTER= 2505;  // ENTER reads ~2505(measured)
+static const uint16_t ADC_MODE_CENTER = 3290;  // MODE  not yet measured — update if detection is unreliable
+// ADC detection tolerances — per-button because VDD variation shifts the
+// ladder midpoints proportionally to their absolute voltage.
+// ENTER (2467) and MODE (3290) sit at higher voltages so shift more counts
+// per mV of VDD change than UP (832) and DOWN (1656).
+//
+// VDD variation budget (worst-case ±7%):
+//   ENTER: 2467 × 0.07 ≈ ±173 counts → need TOL ≥ 180; using 350 for noise margin
+//   MODE:  3290 × 0.07 ≈ ±230 counts → need TOL ≥ 235; using 300 for noise margin
+//   UP/DOWN: lower absolute voltage — 220 is sufficient
+//
+// Overlap check with ±350 ENTER:  range 2117–2817
+//   → gap to DOWN max (1876): 241 ✓   gap to MODE min (2990): 173 ✓
+// Overlap check with ±300 MODE: range 2990–3590
+//   → gap to ENTER max (2817): 173 ✓  gap to NONE (3750): 160 ✓
+static const uint16_t ADC_UP_TOL    = 220;
+static const uint16_t ADC_DOWN_TOL  = 220;
+static const uint16_t ADC_ENTER_TOL = 300;  // ENTER 2505±300 → 2205–2805; gap to MODE min(2990)=185 ✓
+static const uint16_t ADC_MODE_TOL  = 300;
+static const uint16_t ADC_TOL       = 220;   // fallback (not used for ENTER/MODE)
+static const uint16_t ADC_HYS       = 320;
 
 // ── RC-filter settling support ──────────────────────────────────────────────
 // A 47 nF cap on PD6 (ADC pin) slows the voltage transition when a button is
 // released.  The rising voltage drifts through other buttons' ADC windows,
 // potentially spending > 30 ms there and triggering false presses.
-// BTN_SETTLE_MS must be ≥ 5 × R_thevenin × 47 nF.
-// For a ~300 kΩ Thevenin source: 5τ ≈ 70 ms → 100 ms gives a safe margin.
-// Increase this constant if phantom presses still occur.
-static const uint16_t BTN_SETTLE_MS  = 100;
+// BTN_SETTLE_MS must be ≥ the time for ADC to rise past ADC_NONE_MIN after release.
+// For a ~300 kΩ Thevenin source: 5τ ≈ 70 ms.  At 60 ms the ADC is already
+// above 4073 (> ADC_NONE_MIN=3750) even from the ENTER voltage (~2505).
+// 60 ms balances RC safety against responsive repeated presses.
+// Increase if phantom presses return; decrease if consecutive presses are missed.
+static const uint16_t BTN_SETTLE_MS  = 60;
 static unsigned long  btnSettleUntil = 0;   // no new press accepted before this time
 
 uint16_t getButtonAdcRaw() {
@@ -88,11 +108,19 @@ void clearNavEvents() {
 }
 
 static uint16_t buttonCenter(ButtonId button) {
-  if (button == BTN_UP) return ADC_UP_CENTER;
-  if (button == BTN_DOWN) return ADC_DOWN_CENTER;
+  if (button == BTN_UP)    return ADC_UP_CENTER;
+  if (button == BTN_DOWN)  return ADC_DOWN_CENTER;
   if (button == BTN_ENTER) return ADC_ENTER_CENTER;
-  if (button == BTN_MODE) return ADC_MODE_CENTER;
+  if (button == BTN_MODE)  return ADC_MODE_CENTER;
   return 0;
+}
+
+static uint16_t buttonTol(ButtonId button) {
+  if (button == BTN_ENTER) return ADC_ENTER_TOL;
+  if (button == BTN_MODE)  return ADC_MODE_TOL;
+  if (button == BTN_UP)    return ADC_UP_TOL;
+  if (button == BTN_DOWN)  return ADC_DOWN_TOL;
+  return ADC_TOL;
 }
 
 static uint16_t absDiff(uint16_t a, uint16_t b) {
@@ -113,7 +141,7 @@ static ButtonId decodeButton(uint16_t adcVal) {
   for (uint8_t i = 0; i < 4; i++) {
     ButtonId b = candidates[i];
     uint16_t d = absDiff(adcVal, buttonCenter(b));
-    if (d <= ADC_TOL && d < bestDiff) {
+    if (d <= buttonTol(b) && d < bestDiff) {
       best = b;
       bestDiff = d;
     }
@@ -215,7 +243,7 @@ void rotaryFunc() {
     btnDebounceMillis = now;
   }
 
-  if ((now - btnDebounceMillis) >= 80 && sampled != btnStable) {
+  if ((now - btnDebounceMillis) >= 30 && sampled != btnStable) {
     ButtonId prev = btnStable;
     ButtonId next = sampled;
 

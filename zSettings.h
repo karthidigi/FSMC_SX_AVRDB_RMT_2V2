@@ -48,7 +48,7 @@
 #define ENCRYPTION_ENABLED 1
 
 #define CONFIG_START 30
-#define CONFIG_VERSION "9001"   // bumped: full 4-byte check; forces clean EEPROM reset with correct defaults
+#define CONFIG_VERSION "9002"   // bumped: openWireThA/leakagePct garbage fix — forces EEPROM reload with safe defaults
 
 // REMOTE_ID removed — remote serial is now stored via LoRa pairing (storage.remote).
 // Commented-out IDs kept for reference only.
