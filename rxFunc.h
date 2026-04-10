@@ -51,16 +51,21 @@ void rxFunc() {
       }
       m1On();
       loraAck = 1;
-      // Update state fields now; defer savecon() until after ACK TX to avoid
-      // blocking the radio state machine before the remote's ACK window closes.
-      if (storage.modeM1 == 5) {
-        laStaAppStaSavShow = 1;
-        laStaRemM1remTrigrd = 1;
-        laStaRemM1Trigd = 1;
-        digitalWrite(PIN_LED_YELLOW, LOW);
-        storage.app1Run = 1;
-        pendingLastStateSave = true;
+      // Remote ON always activates Last State Remember mode.
+      // If mode is not already 5, switch it now so the device stays in
+      // Last State mode even after a power cycle.
+      // Defer savecon() until after ACK TX to avoid blocking the radio.
+      if (storage.modeM1 != 5) {
+        storage.modeM1 = 5;
+        markLocalModeChange();
+        loadModeVal();
       }
+      laStaAppStaSavShow  = 1;
+      laStaRemM1remTrigrd = 1;
+      laStaRemM1Trigd     = 1;
+      digitalWrite(PIN_LED_YELLOW, LOW);
+      storage.app1Run      = 1;
+      pendingLastStateSave = true;
     }
 
   } else if ((strcmp(encapData, "1F") == 0) ||
@@ -82,19 +87,27 @@ void rxFunc() {
       loraAck = 1;
     }
 
-    if (storage.modeM1 == 5) {
-      laStaAppStaSavShow = 1;
-      storage.app1Run = 0;
-      digitalWrite(PIN_LED_YELLOW, HIGH);
-      pendingLastStateSave = true;  // flushed by loraTxFunc after ACK TX
-    } else if (storage.modeM1 != 0 && !isLocalModeChangeGuardActive()) {
-      // Only reset mode when no recent local menu change is in progress.
-      // isLocalModeChangeGuardActive() stays true for 5 s after the user
-      // sets a mode via the LCD — prevents a gateway OFF command from
-      // wiping a freshly configured mode before the LoRa/cloud round-trip.
-      storage.modeM1 = 0;
-      savecon();
+    // Remote OFF always activates Last State Remember mode.
+    // If mode is not already 5, switch it now.
+    // Defer savecon() until after ACK TX to avoid blocking the radio.
+    if (storage.modeM1 != 5) {
+      storage.modeM1 = 5;
+      markLocalModeChange();
+      loadModeVal();
     }
+    laStaAppStaSavShow   = 1;
+    storage.app1Run      = 0;
+    digitalWrite(PIN_LED_YELLOW, HIGH);
+    pendingLastStateSave = true;  // flushed by loraTxFunc after ACK TX
+    // ── modeM1 intentionally NOT reset here ────────────────────────────────
+    // A remote 1F (motor OFF) command must NOT exit auto / last-state / cyclic
+    // / scheduler modes — the operating mode is only changed by:
+    //   • LCD menu (menu.h sets modeM1 explicitly)
+    //   • IoT shared-attribute push of a1ops (serReader.h, with guard)
+    //   • Countdown mode expiry (mode.h case 3 resets itself to 0)
+    // Removing the old "else if modeM1!=0 → modeM1=0" block fixes the bug
+    // where auto mode and last-state mode were silently cancelled on every
+    // remote OFF command once the 30 s local-guard window expired.
     //delay(1000);
 
 

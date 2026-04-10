@@ -355,12 +355,19 @@ void readIotSerial() {
                 lcd_print("  APP :   ON    ");
                 m1On();
                 a1et = 10;
-
-                if (storage.modeM1 != 0) {  // fixed logic
-                  storage.modeM1 = 0;
-                  Serial3.println("mode normal app : on");
+                // Update Last State remember mode — IoT ON command is a commanded
+                // ON so storage.app1Run must be saved so power-cycle auto-restarts.
+                if (storage.modeM1 == 5) {
+                  laStaAppStaSavShow  = 1;
+                  laStaRemM1remTrigrd = 1;   // block redundant case-5 auto-trigger
+                  laStaRemM1Trigd     = 1;   // enable retry if motor fails to start
+                  digitalWrite(PIN_LED_YELLOW, LOW);
+                  storage.app1Run = 1;
                   savecon();
                 }
+                // modeM1 intentionally NOT reset — app ON/OFF controls the motor
+                // directly but must not cancel auto / last-state / cyclic modes.
+                // Mode is only changed via LCD menu or a1ops attribute push.
               }
             } else if (method == "a1On" && !params) {
               lcd_set_cursor(0, 0);
@@ -370,11 +377,17 @@ void readIotSerial() {
               m1Off();
               a1et = 11;
 
-              if (storage.modeM1 != 0) {  // fixed logic
-                storage.modeM1 = 0;
-                Serial3.println("mode normal app : off");
+              // Update Last State remember mode — IoT OFF command is a commanded
+              // OFF so storage.app1Run must be cleared so power-cycle stays OFF.
+              if (storage.modeM1 == 5) {
+                laStaAppStaSavShow = 1;
+                storage.app1Run    = 0;
+                digitalWrite(PIN_LED_YELLOW, HIGH);
                 savecon();
               }
+              // modeM1 intentionally NOT reset — app ON/OFF controls the motor
+              // directly but must not cancel auto / last-state / cyclic modes.
+              // Mode is only changed via LCD menu or a1ops attribute push.
             } else if (method == "a2On" && params) {
               lcd_set_cursor(0, 0);
               lcd_print(" SWITCH CONTROL ");

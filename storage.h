@@ -30,6 +30,9 @@ struct StoreStruct {
   uint8_t  onRelay;     // ON relay latch in seconds (2–5)
   uint8_t  offRelay;    // OFF relay latch in seconds (2–5)
 
+  float    openWireThA;  // open-wire phase current threshold (A); default 1.0
+  float    leakagePct;   // leakage / imbalance trip threshold (%); default 30.0
+
   uint8_t configflag : 1;
 };
 
@@ -50,19 +53,20 @@ static bool isStorageDirty() {
 }
 
 StoreStruct storage_default = {
-  CONFIG_VERSION,
-  "SMART PUMP-2025",
-  0,
-  0,
-  450,  // ovrVol default: mid-range of valid 350-500 V (was 500)
-  280,  // undVol default: minimum of valid 280-350 V range per spec (was 200, below minimum)
+  CONFIG_VERSION,        // version[5]
+  "SMART PUMP-2026",     // dname[34]
+  0,                     // app1Run
+  0,                     // app2Run
+  490,                   // ovrVol  — over-voltage trip (V); valid 350–500 V
+  280,                   // undVol  — under-voltage trip (V); valid 280–350 V
 
-  0,
-  0.1,
-  10.0,
-  "z0000",
-  "z00000000",
-  "z0000",
+  DEFAULT_MODE_M1,       // modeM1  — see zSettings.h → DEFAULT_MODE_M1
+  1.0f,                  // dryRunM1  — dry-run trip current (A); motor stops if Iavg < this
+  10.0f,                 // ovLRunM1  — overload trip current (A); motor stops if Imax > this
+
+  "z0000",               // autoM1
+  "z00000000",           // cyclicM1
+  "z0000",               // countM1
   { "z00000000000000000",
     "z00000000000000000",
     "z00000000000000000",
@@ -72,13 +76,17 @@ StoreStruct storage_default = {
     "z00000000000000000",
     "z00000000000000000",
     "z00000000000000000",
-    "z00000000000000000" },
-  "z0000",
-  "",    // remote: empty — set via LoRa pairing
-  10,    // senseTime default: 10 s
-  2,     // onRelay default: 2 s
-  3,     // offRelay default: 3 s
-  0
+    "z00000000000000000" },  // sch[10]
+  "z0000",               // lasRemM1
+  "",                    // remote  — set via LoRa pairing
+
+  10,                    // senseTime — fault sense window (s); valid 1–120 s
+  2,                     // onRelay   — ON relay latch time (s)
+  2,                     // offRelay  — OFF relay latch time (s)
+
+  1.0f,                  // openWireThA — open-wire phase threshold (A)
+  30.0f,                 // leakagePct  — leakage imbalance threshold (%)
+  0                      // configflag
 };
 
 
@@ -128,6 +136,26 @@ void printStorage() {
   Serial3.print(F("Remote ID: "));
   Serial3.println(storage.remote);
 
+  Serial3.print(F("Sense Time (s): "));
+  Serial3.println(storage.senseTime);
+  Serial3.print(F("ON Relay Latch (s): "));
+  Serial3.println(storage.onRelay);
+  Serial3.print(F("OFF Relay Latch (s): "));
+  Serial3.println(storage.offRelay);
+
+  Serial3.print(F("Over Voltage Trip (V): "));
+  Serial3.println(storage.ovrVol);
+  Serial3.print(F("Under Voltage Trip (V): "));
+  Serial3.println(storage.undVol);
+  Serial3.print(F("Dry Run Trip (A): "));
+  Serial3.println(storage.dryRunM1, 2);
+  Serial3.print(F("Overload Trip (A): "));
+  Serial3.println(storage.ovLRunM1, 2);
+  Serial3.print(F("Open Wire Threshold (A): "));
+  Serial3.println(storage.openWireThA, 2);
+  Serial3.print(F("Leakage Imbalance (%): "));
+  Serial3.println(storage.leakagePct, 1);
+
   Serial3.println(F("========================"));
 }
 
@@ -151,8 +179,13 @@ void con_default() {
 
 
 void loadcon() {
-  // Check if the stored version matches CONFIG_VERSION
-  if (EEPROM.read(CONFIG_START + 0) == CONFIG_VERSION[0] && EEPROM.read(CONFIG_START + 1) == CONFIG_VERSION[1] && EEPROM.read(CONFIG_START + 2) == CONFIG_VERSION[2]) {
+  // Check all 4 bytes of CONFIG_VERSION — previously only 3 were checked,
+  // so versions differing only in the last character (e.g. "8093" vs "8094")
+  // were treated as identical and stale EEPROM was never reinitialised.
+  if (EEPROM.read(CONFIG_START + 0) == CONFIG_VERSION[0] &&
+      EEPROM.read(CONFIG_START + 1) == CONFIG_VERSION[1] &&
+      EEPROM.read(CONFIG_START + 2) == CONFIG_VERSION[2] &&
+      EEPROM.read(CONFIG_START + 3) == CONFIG_VERSION[3]) {
     Serial3.println("Valid version found, loading EEPROM...");
 
     // lcd_set_cursor(1, 0);

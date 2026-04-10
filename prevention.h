@@ -10,16 +10,16 @@ bool hiVolVars = 0;
 bool openWireVars = 0;   // current open-wire (phase conductor open)
 bool leakageVars  = 0;   // current imbalance / leakage fault
 
-// Open-wire and leakage detection constants (hardcoded per spec)
-#define OPEN_WIRE_THRESHOLD_A  1.0f   // phase current <= this => open wire (if Iavg > min)
+// Open-wire and leakage detection: trip thresholds are user-configurable via EEPROM
+// (storage.openWireThA, storage.leakagePct).  The Iavg minimums are physics-based
+// preconditions — not user-settable — kept as internal constants.
 #define OPEN_WIRE_IAVG_MIN_A   2.0f   // minimum Iavg to enable open-wire check
-#define LEAKAGE_IMBALANCE_PCT  30.0f  // unbalance % threshold for leakage fault
 #define LEAKAGE_IAVG_MIN_A     2.0f   // minimum Iavg to enable leakage check
 
 // Dry run uses its own filtered-current threshold (not m1StaVars / STA_MIN_AMPHS).
-// Avoids false-disables when actual current sits at or near the STA_MIN_AMPHS boundary
-// which causes m1StaVars to flicker and continuously resets the sense timer.
-#define DRY_RUN_MOTOR_MIN_A    0.5f   // filtered Iavg must exceed this to treat motor as running
+// 0.5A was too high — a pump running dry may draw less, keeping motorOn=false and
+// preventing fault detection. 0.1A is above ADC noise floor when motor is fully stopped.
+#define DRY_RUN_MOTOR_MIN_A    0.1f   // filtered Iavg must exceed this to treat motor as running
 
 // 5-sample moving-average filter for phase currents
 #define CURR_FILTER_LEN  5
@@ -91,35 +91,40 @@ static unsigned long senseWindowMs() {
 //////////////////////////////////////
 void overLoadCheck() {
   static unsigned long olStartMs = 0;
+  static unsigned long olClearMs = 0;
 
   float Imax = max(curRFilt, max(curYFilt, curBFilt));
 
   if (m1StaVars && (millis() - m1OnBuffMillis >= 1000)) {
     if (Imax >= storage.ovLRunM1) {
+      olClearMs = 0;
       overloadVars = 1;
       tickRedLedVars = 1;
       if (olStartMs == 0) { olStartMs = millis(); if (!olStartMs) olStartMs = 1; }
       if (millis() - olStartMs >= senseWindowMs()) {
-        if (!m1OffActive) {
-          m1Off();
-          a1et = 29;
-          if (storage.modeM1 != 0) {
-            if (storage.modeM1 == 5) { storage.app1Run = 0; }   // clear last-state intent on fault
-            storage.modeM1 = 0;
-            markLocalModeChange();
-            savecon();
-            loadModeVal();
-          }
+        m1Off();
+        a1et = 29;
+        if (storage.modeM1 != 0) {
+          if (storage.modeM1 == 5) { storage.app1Run = 0; }
+          storage.modeM1 = 0;
+          markLocalModeChange();
+          savecon();
+          loadModeVal();
         }
         olStartMs = 0;
       }
     } else {
-      overloadVars = 0;
-      olStartMs    = 0;
+      if (olClearMs == 0) { olClearMs = millis(); if (!olClearMs) olClearMs = 1; }
+      if (millis() - olClearMs >= 2000UL) {
+        overloadVars = 0;
+        olStartMs    = 0;
+        olClearMs    = 0;
+      }
     }
   } else {
     overloadVars = 0;
     olStartMs    = 0;
+    olClearMs    = 0;
   }
 }
 
@@ -136,53 +141,56 @@ void overLoadCheck() {
 //////////////////////////////////////
 void dryRunCheck() {
   static unsigned long drStartMs = 0;
-  static unsigned long drOnMs    = 0;   // when filtered current first exceeded min threshold
+  static unsigned long drOnMs    = 0;
+  static unsigned long drClearMs = 0;
   static bool          drPrevOn  = false;
 
   float Iavg    = curIavgFilt;
   bool  motorOn = (Iavg > DRY_RUN_MOTOR_MIN_A);
 
   if (!motorOn) {
-    // Motor not running — clear everything
     drPrevOn   = false;
     drStartMs  = 0;
+    drClearMs  = 0;
     dryRunVars = 0;
     return;
   }
 
-  // Rising edge: record when motor current first stabilised above min threshold
   if (!drPrevOn) {
     drOnMs   = millis();
     drPrevOn = true;
   }
 
-  // Skip first second after motor detected running (inrush / filter warmup)
   if (millis() - drOnMs < 1000UL) {
     drStartMs = 0;
+    drClearMs = 0;
     return;
   }
 
   if (Iavg < storage.dryRunM1) {
+    drClearMs = 0;
     dryRunVars = 1;
     tickRedLedVars = 1;
     if (drStartMs == 0) { drStartMs = millis(); if (!drStartMs) drStartMs = 1; }
     if (millis() - drStartMs >= senseWindowMs()) {
-      if (!m1OffActive) {
-        m1Off();
-        a1et = 28;
-        if (storage.modeM1 != 0) {
-          if (storage.modeM1 == 5) { storage.app1Run = 0; }   // clear last-state intent on fault
-          storage.modeM1 = 0;
-          markLocalModeChange();
-          savecon();
-          loadModeVal();
-        }
+      m1Off();
+      a1et = 28;
+      if (storage.modeM1 != 0) {
+        if (storage.modeM1 == 5) { storage.app1Run = 0; }
+        storage.modeM1 = 0;
+        markLocalModeChange();
+        savecon();
+        loadModeVal();
       }
       drStartMs = 0;
     }
   } else {
-    dryRunVars = 0;
-    drStartMs  = 0;
+    if (drClearMs == 0) { drClearMs = millis(); if (!drClearMs) drClearMs = 1; }
+    if (millis() - drClearMs >= 2000UL) {
+      dryRunVars = 0;
+      drStartMs  = 0;
+      drClearMs  = 0;
+    }
   }
 }
 
@@ -195,38 +203,44 @@ void dryRunCheck() {
 //////////////////////////////////////
 void openWireCheck() {
   static unsigned long owStartMs = 0;
+  static unsigned long owClearMs = 0;
 
   float Iavg = curIavgFilt;
-  bool anyLow = (curRFilt <= OPEN_WIRE_THRESHOLD_A ||
-                 curYFilt <= OPEN_WIRE_THRESHOLD_A ||
-                 curBFilt <= OPEN_WIRE_THRESHOLD_A);
+  float owTh = (storage.openWireThA > 0.0f) ? storage.openWireThA : 1.0f;
+  bool anyLow = (curRFilt <= owTh ||
+                 curYFilt <= owTh ||
+                 curBFilt <= owTh);
 
   if (m1StaVars && (millis() - m1OnBuffMillis >= 1000)) {
     if (anyLow && Iavg > OPEN_WIRE_IAVG_MIN_A) {
+      owClearMs = 0;
       openWireVars = 1;
       tickRedLedVars = 1;
       if (owStartMs == 0) { owStartMs = millis(); if (!owStartMs) owStartMs = 1; }
       if (millis() - owStartMs >= senseWindowMs()) {
-        if (!m1OffActive) {
-          m1Off();
-          a1et = 27;
-          if (storage.modeM1 != 0) {
-            if (storage.modeM1 == 5) { storage.app1Run = 0; }   // clear last-state intent on fault
-            storage.modeM1 = 0;
-            markLocalModeChange();
-            savecon();
-            loadModeVal();
-          }
+        m1Off();
+        a1et = 27;
+        if (storage.modeM1 != 0) {
+          if (storage.modeM1 == 5) { storage.app1Run = 0; }
+          storage.modeM1 = 0;
+          markLocalModeChange();
+          savecon();
+          loadModeVal();
         }
         owStartMs = 0;
       }
     } else {
-      openWireVars = 0;
-      owStartMs    = 0;
+      if (owClearMs == 0) { owClearMs = millis(); if (!owClearMs) owClearMs = 1; }
+      if (millis() - owClearMs >= 2000UL) {
+        openWireVars = 0;
+        owStartMs    = 0;
+        owClearMs    = 0;
+      }
     }
   } else {
     openWireVars = 0;
     owStartMs    = 0;
+    owClearMs    = 0;
   }
 }
 
@@ -238,40 +252,45 @@ void openWireCheck() {
 //////////////////////////////////////
 void leakageCheck() {
   static unsigned long lkStartMs = 0;
+  static unsigned long lkClearMs = 0;
 
   float Iavg = curIavgFilt;
 
   if (m1StaVars && (millis() - m1OnBuffMillis >= 1000) && Iavg > LEAKAGE_IAVG_MIN_A) {
     float Imax   = max(curRFilt, max(curYFilt, curBFilt));
     float Imin   = min(curRFilt, min(curYFilt, curBFilt));
-    // Use max deviation (high OR low phase) for proper 3-phase unbalance detection
     float maxDev       = max(Imax - Iavg, Iavg - Imin);
     float imbalancePct = (maxDev / Iavg) * 100.0f;
-    if (imbalancePct > LEAKAGE_IMBALANCE_PCT) {
+    float lkTh = (storage.leakagePct > 0.0f) ? storage.leakagePct : 30.0f;
+    if (imbalancePct > lkTh) {
+      lkClearMs = 0;
       leakageVars = 1;
       tickRedLedVars = 1;
       if (lkStartMs == 0) { lkStartMs = millis(); if (!lkStartMs) lkStartMs = 1; }
       if (millis() - lkStartMs >= senseWindowMs()) {
-        if (!m1OffActive) {
-          m1Off();
-          a1et = 26;
-          if (storage.modeM1 != 0) {
-            if (storage.modeM1 == 5) { storage.app1Run = 0; }   // clear last-state intent on fault
-            storage.modeM1 = 0;
-            markLocalModeChange();
-            savecon();
-            loadModeVal();
-          }
+        m1Off();
+        a1et = 26;
+        if (storage.modeM1 != 0) {
+          if (storage.modeM1 == 5) { storage.app1Run = 0; }
+          storage.modeM1 = 0;
+          markLocalModeChange();
+          savecon();
+          loadModeVal();
         }
         lkStartMs = 0;
       }
     } else {
-      leakageVars = 0;
-      lkStartMs   = 0;
+      if (lkClearMs == 0) { lkClearMs = millis(); if (!lkClearMs) lkClearMs = 1; }
+      if (millis() - lkClearMs >= 2000UL) {
+        leakageVars = 0;
+        lkStartMs   = 0;
+        lkClearMs   = 0;
+      }
     }
   } else {
     leakageVars = 0;
     lkStartMs   = 0;
+    lkClearMs   = 0;
   }
 }
 

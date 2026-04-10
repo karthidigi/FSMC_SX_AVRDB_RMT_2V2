@@ -507,7 +507,17 @@ static void openCyclicHotkey() {
 }
 
 static void toggleNormalAutoMode() {
+#ifdef REMOTE_ONLY_MODE
+  // Mode is locked to Last State Remember — MODE button hold is disabled.
+  return;
+#endif
   uint8_t curMode  = normalizeModeForUi(storage.modeM1);
+
+  // Last State mode (5) can only be exited via the LCD menu — not by the MODE button.
+  // This guards against both phantom 1-second holds and deliberate presses while the
+  // device is in remote-controlled last-state operation.
+  if (curMode == 5) return;
+
   uint8_t prevMode = storage.modeM1;   // capture before overwrite
 
   // Button logic (fixed):

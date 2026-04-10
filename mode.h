@@ -321,6 +321,13 @@ void modeM1() {
       break;
     ////////////////////////
     case 5:
+      // Refresh the local-mode-change guard on every loop while in Last State mode.
+      // Without this, ThingsBoard re-pushes its cached a1ops=0 shared attribute after
+      // the 30 s guard expires (on reconnect or periodic sync), silently resetting
+      // Last State back to Normal. Continuously refreshing the guard blocks that path.
+      // The guard only expires naturally once the mode is changed away from 5.
+      markLocalModeChange();
+
       ////////////////////////
       // last state remembers
       // bool laStaRemM1Trigd = 0;

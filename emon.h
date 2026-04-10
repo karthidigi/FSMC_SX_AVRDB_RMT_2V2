@@ -170,9 +170,20 @@ ISR(ADC0_RESRDY_vect) {
     sumSq[current_channel] += sample;
 
   } else if (current_channel == 7) {
-    // ch7: AIN6 (PD6 = PIN_KEY_ADC) = button ladder → store latest reading
-    // This keeps ladderBtnAdcRaw fresh at ~250 Hz during energy measurement.
-    ladderBtnAdcRaw = sample;
+    // ch7: AIN6 (PD6 = PIN_KEY_ADC) = button ladder.
+    // 8-sample rolling average suppresses ADC mux-settling transients that
+    // occur when the mux switches from an AC V/I channel to the button ladder.
+    // A single-sample transient of 0 would shift the average by only 512 counts
+    // (4095*7/8 = 3583), which is above MODE_MAX (3510) → still reads BTN_NONE.
+    // Real button presses settle within ~4 ms (8 × 500 µs) — well within debounce.
+    static uint16_t btnBuf[8] = {4095,4095,4095,4095,4095,4095,4095,4095};
+    static uint8_t  btnHead   = 0;
+    static uint32_t btnSum    = 4095UL * 8;
+    btnSum -= btnBuf[btnHead];
+    btnBuf[btnHead] = (uint16_t)sample;
+    btnSum += (uint16_t)sample;
+    btnHead = (btnHead + 1) & 7;
+    ladderBtnAdcRaw = (uint16_t)(btnSum >> 3);
 
   } else {
     // ch0–5: V/I channels → accumulate sum of squares for AC RMS

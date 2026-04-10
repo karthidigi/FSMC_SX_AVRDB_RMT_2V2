@@ -31,11 +31,14 @@ static unsigned long modePressMillis = 0;
 static uint16_t btnLastAdc = 4095;
 static const uint16_t ENTER_CLICK_MAX_MS  = 500;
 static const uint16_t MODE_CLICK_MAX_MS   = 1000;
-static const uint16_t ADC_NONE_MIN = 3900;
+// ADC_NONE_MIN: threshold above which the ladder reads as "no button pressed".
+// Hardware idle floor is ~3870–4004 (measured). Set to 3750 to stay safely
+// below the floor while remaining well above MODE_MAX (3510 = 3290+220).
+static const uint16_t ADC_NONE_MIN = 3750;
 static const uint16_t ADC_MENU_MAX = 400;
 static const uint16_t ADC_UP_CENTER = 832;
 static const uint16_t ADC_DOWN_CENTER = 1656;
-static const uint16_t ADC_ENTER_CENTER = 2430;
+static const uint16_t ADC_ENTER_CENTER = 2467;
 static const uint16_t ADC_MODE_CENTER = 3290;
 static const uint16_t ADC_TOL = 220;
 static const uint16_t ADC_HYS = 320;
@@ -212,7 +215,7 @@ void rotaryFunc() {
     btnDebounceMillis = now;
   }
 
-  if ((now - btnDebounceMillis) >= 30 && sampled != btnStable) {
+  if ((now - btnDebounceMillis) >= 80 && sampled != btnStable) {
     ButtonId prev = btnStable;
     ButtonId next = sampled;
 

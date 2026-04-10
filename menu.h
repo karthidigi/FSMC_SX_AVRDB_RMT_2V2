@@ -754,6 +754,11 @@ void menuUi() {
         lcd_print("   SET AUTO     ");
         break;
       case 1110:
+#ifdef REMOTE_ONLY_MODE
+        lcd_set_cursor(0, 0); lcd_print(" MODE   LOCKED  ");
+        lcd_set_cursor(1, 0); lcd_print(" LastRem  Only  ");
+        uiFunc(1); menuUiFunc = 0;
+#else
         storage.modeM1 = 0;
         markLocalModeChange();
         Serial3.print("menu mode normal: ");
@@ -764,6 +769,7 @@ void menuUi() {
         uiFunc(1);
         menuUiFunc = 0;
         lcd_modeShow();
+#endif
         break;
 
       case 1200:
@@ -775,6 +781,12 @@ void menuUi() {
         break;
 
       case 1210:
+#ifdef REMOTE_ONLY_MODE
+        lcd_set_cursor(0, 0); lcd_print(" MODE   LOCKED  ");
+        lcd_set_cursor(1, 0); lcd_print(" LastRem  Only  ");
+        uiFunc(1); menuUiFunc = 0;
+        break;
+#endif
         var1 = String(storage.autoM1).substring(1, 3).toInt();
         var2 = String(storage.autoM1).substring(3, 5).toInt();
         if (get2ValFunc("OnDelay", var1, var2, 'm', 59, 's', 59)) {
@@ -828,6 +840,12 @@ void menuUi() {
         lcd_print("   SET COUNTDOWN");
         break;
       case 1310:
+#ifdef REMOTE_ONLY_MODE
+        lcd_set_cursor(0, 0); lcd_print(" MODE   LOCKED  ");
+        lcd_set_cursor(1, 0); lcd_print(" LastRem  Only  ");
+        uiFunc(1); menuUiFunc = 0;
+        break;
+#endif
         var1 = String(storage.cyclicM1).substring(1, 3).toInt();
         var2 = String(storage.cyclicM1).substring(3, 5).toInt();
         if (get2ValFunc(" On Dur", var1, var2, 'h', 23, 'm', 59)) {
@@ -886,6 +904,12 @@ void menuUi() {
         break;
 
       case 1410:
+#ifdef REMOTE_ONLY_MODE
+        lcd_set_cursor(0, 0); lcd_print(" MODE   LOCKED  ");
+        lcd_set_cursor(1, 0); lcd_print(" LastRem  Only  ");
+        uiFunc(1); menuUiFunc = 0;
+        break;
+#endif
         var1 = String(storage.countM1).substring(1, 3).toInt();
         var2 = String(storage.countM1).substring(3, 5).toInt();
         if (get2ValFunc("CounTmr", var1, var2, 'h', 23, 'm', 59)) {
@@ -925,6 +949,12 @@ void menuUi() {
         break;
 
       case 1510:
+#ifdef REMOTE_ONLY_MODE
+        lcd_set_cursor(0, 0); lcd_print(" MODE   LOCKED  ");
+        lcd_set_cursor(1, 0); lcd_print(" LastRem  Only  ");
+        uiFunc(1); menuUiFunc = 0;
+        break;
+#endif
         // Schedule mode: show info message, set mode=4, save, exit
         storage.modeM1 = 4;
         markLocalModeChange();

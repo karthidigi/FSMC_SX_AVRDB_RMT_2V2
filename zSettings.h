@@ -16,9 +16,9 @@
 
 
 //////////////////////////
-// HEY THERE DONT FORGET TO COMMENT IN PRODUCTION
+// HEY THERE DONT FORGET TO COMMENT IN PRODUCTION 
 // OR ELSE => YOU WILL BE NOODLE
-#define SIMULTION
+// #define SIMULTION
 //////////////////////////
 // ---- DS3231 Real-Time Clock ----
 // Define ENABLE_RTC if the DS3231 module is physically installed.
@@ -26,13 +26,29 @@
 // remove the Date/Time item from the status screen.
 // #define ENABLE_RTC
 
+// ── Default operating mode for fresh EEPROM ──────────────────────────────────
+// 0 = Normal  1 = Auto  2 = Cyclic  3 = Countdown  4 = Scheduler  5 = Last State Remember
+// Last State Remember (5): motor restores its last commanded ON/OFF on every power-up.
+#define DEFAULT_MODE_M1  5
+
+// ── Remote-only operation lock ────────────────────────────────────────────────
+// Define REMOTE_ONLY_MODE to lock the device to Last State Remember (mode 5).
+// While defined:
+//   • LCD menu mode-change items (Normal/Auto/Cyclic/Countdown/Scheduler) are
+//     blocked — selecting them shows "MODE LOCKED" and returns to the home screen.
+//   • Last State delay setting (menu case 1610) remains accessible.
+//   • The MODE-button 1-second hold (toggleNormalAutoMode) is disabled.
+//   • IoT a1ops shared-attribute can still override mode from the app if needed.
+// Comment out this line to restore full menu mode-switching.
+// #define REMOTE_ONLY_MODE
+ 
 #define BPCOUNTER 120    // 120 × 5 ms = 600 ms hold to confirm OK / CANCEL (was 1000 = 5 s)
 
 
 #define ENCRYPTION_ENABLED 1
 
 #define CONFIG_START 30
-#define CONFIG_VERSION "8093"   // bumped: removed gateway[21] + rf_locked (no GW mode)
+#define CONFIG_VERSION "9001"   // bumped: full 4-byte check; forces clean EEPROM reset with correct defaults
 
 // REMOTE_ID removed — remote serial is now stored via LoRa pairing (storage.remote).
 // Commented-out IDs kept for reference only.

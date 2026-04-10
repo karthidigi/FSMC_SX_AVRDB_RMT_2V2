@@ -127,15 +127,11 @@ ISR(TCB3_INT_vect) {
 
     // Check if OFF release duration reached (storage.offRelay seconds from LCD menu)
     if (m1OffTickCounter >= OFF_PULSE_MS()) {
-      if (elst == 0) {
-        // No fault: re-energise relay → NO closes → normal run restored
-        digitalWrite(PIN_M1OFF, HIGH);
-        m1OffActive = false;
-        stopOffTimer();
-      } else {
-        // Fault still active: restart counter for another cycle
-        m1OffTickCounter = 0;
-      }
+      // Re-energise after latch duration regardless of fault state.
+      // prevention.h will call m1Off() again if a fault is still active.
+      digitalWrite(PIN_M1OFF, HIGH);
+      m1OffActive = false;
+      stopOffTimer();
     }
   }
 }
