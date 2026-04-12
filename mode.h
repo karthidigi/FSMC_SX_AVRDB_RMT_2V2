@@ -140,21 +140,19 @@ void modeM1() {
         }
       }
 
-      // Fault handling:
-      //   PRE-trigger  (autoM1Trigd == 0): restart the full countdown so the
-      //                configured delay runs again once the fault clears.
-      //   POST-trigger (autoM1Trigd == 1): do NOT restart countdown.
-      //                PowChecks() + m1OffActive already protect the motor.
-      //                The retry block below will re-fire m1On() as soon as
-      //                the fault protection releases.
-      if (elst > 0 && !autoM1Trigd) {
+      // Fault handling: on ANY fault (power loss, under/over voltage, phase cut),
+      // reset autoM1Trigd and restart the delay timer regardless of whether the
+      // motor had already started.  This ensures the full configured ON delay runs
+      // again after every fault recovery — both pre- and post-trigger.
+      // PowChecks() independently calls m1Off() to stop the motor while elst > 0.
+      if (elst > 0) {
         autoM1BuffMillis = millis();
+        autoM1Trigd      = 0;   // full delay must run again on recovery
       }
 
-      // Retry: trigger fired but motor not running yet — retry every 3 s.
-      // Guard with !m1OffActive so we only attempt when the relay is actually
-      // free; this also means atLastTrigdMillis is only updated on a real
-      // attempt, so the retry fires promptly once the fault clears.
+      // Retry: delay fired and m1On() was called but motor not yet confirmed running
+      // (e.g. contactor slow to pull in) — retry every 3 s until motor starts.
+      // Guard with !m1OffActive so we don't re-trigger during the OFF relay latch.
       if (autoM1Trigd && !m1StaVars && !m1OffActive
           && (millis() - atLastTrigdMillis >= 3000)) {
         a1et = 13;
@@ -168,6 +166,22 @@ void modeM1() {
     ////////////////////////
     // Cyclic
     case 2:
+      // Guard: both ON and OFF durations must be non-zero.
+      // Default storage "z00000000" gives 0 ms — without this guard both timers
+      // expire at millis() causing Init→OFF→ON→OFF… every loop() pass.
+      if ((cyOnHrs + cyOnMins) == 0 || (cyOffHrs + cyOffMins) == 0) {
+        break;
+      }
+
+      // Fault active: hold off any m1On() call to prevent relay chatter.
+      // modeM1() runs before PowChecks(); without this guard the init block would
+      // call m1On() on the same pass that PowChecks() calls m1Off().
+      if (elst > 0) {
+        cyclicM1Init  = 0;
+        cyclicM1State = 0;
+        break;
+      }
+
       // One-time init: start motor immediately (spec: "Motor must start immediately after configuration")
       if (!cyclicM1Init) {
         a1et = 16;
@@ -186,9 +200,10 @@ void modeM1() {
           cyclicM1OffDurMillis = ((cyOffHrs + cyOffMins) * 1000UL) + millis();
           cyclicM1State = 2;
         }
-      }
-
-      if (cyclicM1State == 2) {
+      } else if (cyclicM1State == 2) {
+        // else-if prevents state-2 from firing on the same pass as state-1:
+        // a just-expired state-1 sets cyclicM1OffDurMillis = millis() and the
+        // bare-if below would fire immediately in the same modeM1() call.
         if (millis() >= cyclicM1OffDurMillis) {
           a1et = 16;
           m1On();
@@ -196,12 +211,6 @@ void modeM1() {
           cyclicM1OnDurMillis = ((cyOnHrs + cyOnMins) * 1000UL) + millis();
           cyclicM1State = 1;
         }
-      }
-
-      if (elst > 0) {
-        // Reset both flags: restart always begins from ON phase after fault clears
-        cyclicM1Init  = 0;
-        cyclicM1State = 0;
       }
 
       break;

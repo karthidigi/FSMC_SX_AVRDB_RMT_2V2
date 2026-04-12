@@ -4,7 +4,27 @@
       "Bash(dir:*)",
       "Bash(git -C \"C:/Users/Saran_Jaz/OneDrive/Documents/02_CLAUD_COWORK/fmcv2_1606_LLCC68_Claude\" log --oneline)",
       "Bash(grep -l \"void \" \"C:/Users/Saran_Jaz/OneDrive/Documents/02_CLAUD_COWORK/fmcv2_1606_LLCC68_Claude/\"*.h)",
-      "Bash(xargs -I{} sh -c 'head -3 \"\"{}\"\" | grep -q \"\"pragma once\\\\|#ifndef\"\" || echo \"\"NO GUARD: {}\"\"')"
+      "Bash(xargs -I{} sh -c 'head -3 \"\"{}\"\" | grep -q \"\"pragma once\\\\|#ifndef\"\" || echo \"\"NO GUARD: {}\"\"')",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Programs/Python/Python313/python.exe C:/Users/Saran_Jaz/AppData/Local/Temp/patch_hwpins.py)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Temp/patch_ledticker.py:*)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Programs/Python/Python313/python.exe C:/Users/Saran_Jaz/AppData/Local/Temp/patch_ledticker.py)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Temp/patch_motor.py:*)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Programs/Python/Python313/python.exe C:/Users/Saran_Jaz/AppData/Local/Temp/patch_motor.py)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Programs/Python/Python313/python.exe -c \":*)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Temp/patch_prev_led.py:*)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Programs/Python/Python313/python.exe C:/Users/Saran_Jaz/AppData/Local/Temp/patch_prev_led.py)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Temp/patch_mode_led.py:*)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Programs/Python/Python313/python.exe C:/Users/Saran_Jaz/AppData/Local/Temp/patch_mode_led.py)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Temp/patch_prot_curr.py:*)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Programs/Python/Python313/python.exe C:/Users/Saran_Jaz/AppData/Local/Temp/patch_prot_curr.py)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Temp/patch_lcd_curr.py:*)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Programs/Python/Python313/python.exe C:/Users/Saran_Jaz/AppData/Local/Temp/patch_lcd_curr.py)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Temp/patch_ino_curr.py:*)",
+      "Bash(C:/Users/Saran_Jaz/AppData/Local/Programs/Python/Python313/python.exe C:/Users/Saran_Jaz/AppData/Local/Temp/patch_ino_curr.py)",
+      "Bash(wc -l \"C:\\\\Users\\\\Saran_Jaz\\\\Downloads\\\\HorizonGrid_Implementation_Plan_v2 \\(1\\).md\")",
+      "Bash(find /mnt /home /root /Users /c /d 2)",
+      "Bash(/dev/null -name gwData.h -o -name iotData.h -o -name *.ino)",
+      "Bash(find C:UsersSaran_JazOneDriveDocuments02_CLAUD_COWORK -name *.h -o -name *.ino)"
     ]
   }
 }

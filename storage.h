@@ -54,7 +54,7 @@ static bool isStorageDirty() {
 
 StoreStruct storage_default = {
   CONFIG_VERSION,        // version[5]
-  "SMART PUMP-2026",     // dname[34]
+  " Fable H1 REMOTE",     // dname[34]
   0,                     // app1Run
   0,                     // app2Run
   490,                   // ovrVol  — over-voltage trip (V); valid 350–500 V

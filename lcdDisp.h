@@ -58,6 +58,14 @@ void lcd_data(uint8_t data) {
   delayMicroseconds(50);
 }
 
+// Write an 8-row custom character into CGRAM slot loc (0–7).
+// After writing, the controller is left with CGRAM address set;
+// call lcd_set_cursor() before any DDRAM print.
+static void lcd_createChar(uint8_t loc, const uint8_t* charmap) {
+  lcd_cmd(0x40 | ((loc & 0x07) << 3));
+  for (uint8_t i = 0; i < 8; i++) lcd_data(charmap[i]);
+}
+
 void lcdInit() {
   pinMode(PIN_LCD_RS, OUTPUT);
   pinMode(PIN_LCD_EN, OUTPUT);
@@ -86,6 +94,11 @@ void lcdInit() {
   delay(2);
   lcd_cmd(0x06);  // Entry mode
   lcd_cmd(0x0C);  // Display ON, cursor OFF
+
+  // CGRAM slot 1: tick/checkmark character ✓
+  static const uint8_t tickChar[8] = {0x00, 0x01, 0x03, 0x16, 0x1C, 0x08, 0x00, 0x00};
+  lcd_createChar(1, tickChar);
+  lcd_cmd(0x80);  // return cursor to DDRAM address 0 after CGRAM write
 }
 
 void lcd_set_cursor(uint8_t row, uint8_t col) {
@@ -98,20 +111,20 @@ void lcd_print(const char* str) {
 
 
 void lcd_volPrevShow(bool lx) {
-  if (knobRoll || lx) {
+  if (btnScrolled || lx) {
     snprintf(lcd_buf, sizeof(lcd_buf), "UnderVol < %2d V", storage.undVol);
     lcd_set_cursor(0, 0);
     lcd_print(lcd_buf);
     snprintf(lcd_buf, sizeof(lcd_buf), "Over Vol > %2d V", storage.ovrVol);
     lcd_set_cursor(1, 0);
     lcd_print(lcd_buf);
-    knobRoll = 0;
+    btnScrolled = 0;
   }
 }
 
 
 void lcd_curPrevShow(bool lx) {
-  if (knobRoll || lx) {
+  if (btnScrolled || lx) {
     char bufx[8];
     dtostrf(storage.dryRunM1, 3, 1, bufx);
     snprintf(lcd_buf, sizeof(lcd_buf), "DRY RUN < %s A ", bufx);
@@ -121,13 +134,13 @@ void lcd_curPrevShow(bool lx) {
     snprintf(lcd_buf, sizeof(lcd_buf), "OV LOAD > %s A ", bufx);
     lcd_set_cursor(1, 0);
     lcd_print(lcd_buf);
-    knobRoll = 0;
+    btnScrolled = 0;
   }
 }
 
 
 void lcd_nameShow(bool lx) {
-  if (knobRoll || lx) {
+  if (btnScrolled || lx) {
     lcd_set_cursor(0, 0);
     //c_print("1234567890123456");
     lcd_print("   Device Name  ");
@@ -135,7 +148,7 @@ void lcd_nameShow(bool lx) {
     lcd_print("                ");
     lcd_set_cursor(1, (16 - String(storage.dname).length()) / 2);
     lcd_print(storage.dname);
-    knobRoll = 0;
+    btnScrolled = 0;
   }
 }
 
@@ -165,6 +178,15 @@ void lcd_modeShow() {
     lcd_set_cursor(1, 0);
     lcd_print("   LAST STATE   ");
   }
+}
+
+// Shown when any preset/threshold value is saved from the PRESET menu.
+// CGRAM slot 1 must contain the tick character (defined in lcdInit).
+void lcd_presetApplied() {
+  lcd_set_cursor(0, 0);
+  lcd_print("Presets Applied ");
+  lcd_set_cursor(1, 0);
+  lcd_print("     \x01 Saved \x01  ");
 }
 
 void lcd_activeModeShow() {
@@ -507,6 +529,13 @@ static void openCyclicHotkey() {
 }
 
 static void toggleNormalAutoMode() {
+  // DISABLED: MODE-button hotkey is permanently disabled.
+  // Phantom ADC readings (RC-cap settling after any button release) can briefly
+  // land in the MODE window, start Path 2's 1-second hold timer, and eventually
+  // call this function — silently switching Auto/Last-State back to Normal mode.
+  // Mode changes must only happen via the LCD menu (PRESET → MODES) or IoT.
+  return;
+
 #ifdef REMOTE_ONLY_MODE
   // Mode is locked to Last State Remember — MODE button hold is disabled.
   return;
@@ -514,8 +543,6 @@ static void toggleNormalAutoMode() {
   uint8_t curMode  = normalizeModeForUi(storage.modeM1);
 
   // Last State mode (5) can only be exited via the LCD menu — not by the MODE button.
-  // This guards against both phantom 1-second holds and deliberate presses while the
-  // device is in remote-controlled last-state operation.
   if (curMode == 5) return;
 
   uint8_t prevMode = storage.modeM1;   // capture before overwrite
@@ -900,62 +927,44 @@ void uiFunc(bool lx) {
   static unsigned long blockUntil       = 0;
   // Hold-state statics declared here (outside inner block) so the blockUntil
   // section can cancel them when an external uiFunc(1) interrupts a hold.
-  static unsigned long modeHoldStart    = 0; (void)modeHoldStart;  // unused while automode hotkey is disabled
+  // Hold-state statics kept for reference; Path 1 and Path 2 are both disabled.
+  // modeHoldActive / autoOffHoldActive are never set with both paths commented out.
+  static unsigned long modeHoldStart    = 0; (void)modeHoldStart;
   static bool          modeHoldActive   = false;
-  static unsigned long autoOffHoldStart = 0;
-  static bool          autoOffHoldActive = false;
-  // Prevents Path 2 from starting immediately while button is still held
-  // after a successful Path 1 or Path 2 activation.
-  static bool          modeNeedsRelease = false;
+  static unsigned long autoOffHoldStart = 0; (void)autoOffHoldStart;
+  static bool          autoOffHoldActive = false; (void)autoOffHoldActive;
+  static bool          modeNeedsRelease = false;  (void)modeNeedsRelease;
 
   unsigned long now = millis();
 
-  rotaryFunc();
+  btnScan();
 
   if (lx) {
     blockUntil = now + 3000;
-    // Cancel any in-progress hold so stale elapsed cannot fire on resume.
-    if (modeHoldActive) {
-      modeHoldActive     = false;
-      modeHoldInProgress = false;
-    }
-    autoOffHoldActive = false;
-    autoOffHoldStart  = 0;
     return;
   }
 
   if (now < blockUntil) {
-    // Drop ALL stale navigation events while blocked.  Without this, any
-    // UP/DOWN/ENTER/MENU input queued during the 1.2–3 s display window
-    // fires immediately after it expires, causing the status screen, the
-    // menu, or the countdown hotkey to open unexpectedly.
+    // Drop ALL stale navigation events while blocked.
     takeModePress();
     takeMenuPress();
-    rotValPlus  = 0;
-    rotValMinus = 0;
-    rotPush     = 0;
-    // Also cancel holds — stale modeHoldStart must not persist past blockUntil.
-    if (modeHoldActive) {
-      modeHoldActive     = false;
-      modeHoldInProgress = false;
-    }
-    autoOffHoldActive = false;
-    autoOffHoldStart  = 0;
+    navDn  = 0;
+    navUp = 0;
+    navEnter     = 0;
     return;
   }
 
-  // ── MODE button hold detection ───────────────────────────────────────────────
-  // NORMAL → AUTO:       Hold ≥ 1 s → opens AUTO-delay mm:ss editor.
-  //                      ENTER in editor confirms + activates; MENU/MODE cancels.
-  //                      modeHoldInProgress pauses emon ADC-ISR during the 1 s
-  //                      window (same mechanism as menuUiFunc), preventing ISR
-  //                      noise from dropping btnStable and cancelling the hold.
-  // non-NORMAL → NORMAL: Hold ≥ 1 s → silent direct toggle.
+  // ── MODE button hold detection — BOTH PATHS DISABLED ────────────────────────
+  // Path 1 (NORMAL → AUTO via hold) and Path 2 (non-NORMAL → NORMAL via hold)
+  // are both disabled.  The MODE button ADC channel picks up RC-settling
+  // transients after adjacent button releases, which can accumulate into a
+  // phantom 1-second hold and silently switch the mode.
+  // All mode changes must go through the LCD menu or IoT.
   {
-    bool    modeDown = isModeButtonDown();   // uses debounced btnStable
+    bool    modeDown = isModeButtonDown();
     uint8_t curMode  = normalizeModeForUi(storage.modeM1);
 
-    // Release gate: clear flags and resume emon the moment button is up.
+    // Release gate placeholder (kept so structure compiles cleanly).
     if (!modeDown) {
       modeNeedsRelease   = false;
       modeHoldInProgress = false;
@@ -994,32 +1003,39 @@ void uiFunc(bool lx) {
       lcdDisplayState = 255;
     }
 
-    // ── Path 2: non-NORMAL → NORMAL (1-second hold) ──────────────────────────
-    // modeNeedsRelease blocks immediately-re-held case after any activation.
-    if (modeDown && curMode != 0 && !modeNeedsRelease) {
-      if (!autoOffHoldActive) {
-        autoOffHoldActive  = true;
-        autoOffHoldStart   = now;
-        modeHoldInProgress = true;   // pause emon during hold
-      }
-      if (now - autoOffHoldStart >= 1000UL) {
-        autoOffHoldActive  = false;
-        autoOffHoldStart   = 0;
-        modeHoldInProgress = false;
-        modeNeedsRelease   = true;
-        takeModePress();
-        toggleNormalAutoMode();       // non-NORMAL → NORMAL
-        blockUntil = millis() + 1200;
-      }
-      return;
-    }
-    // Cancel Path 2 if button released before 1 s
-    if (autoOffHoldActive) {
-      autoOffHoldActive  = false;
-      autoOffHoldStart   = 0;
-      modeHoldInProgress = false;
-      takeModePress();
-    }
+    // ── Path 2: non-NORMAL → NORMAL (1-second hold) — DISABLED ─────────────
+    // Commented out: RC-cap ADC settling after any button release can briefly
+    // register a phantom MODE press, starting this hold timer.  Over multiple
+    // phantom touches the 1-second threshold can be reached, calling
+    // toggleNormalAutoMode() and silently resetting Auto/Last-State to Normal.
+    // Mode changes are only allowed through the LCD menu or IoT.
+    //
+    // if (modeDown && curMode != 0 && !modeNeedsRelease) {
+    //   if (!autoOffHoldActive) {
+    //     autoOffHoldActive  = true;
+    //     autoOffHoldStart   = now;
+    //     modeHoldInProgress = true;
+    //   }
+    //   if (now - autoOffHoldStart >= 1000UL) {
+    //     autoOffHoldActive  = false;
+    //     autoOffHoldStart   = 0;
+    //     modeHoldInProgress = false;
+    //     modeNeedsRelease   = true;
+    //     takeModePress();
+    //     toggleNormalAutoMode();
+    //     blockUntil = millis() + 1200;
+    //   }
+    //   return;
+    // }
+    // if (autoOffHoldActive) {
+    //   autoOffHoldActive  = false;
+    //   autoOffHoldStart   = 0;
+    //   modeHoldInProgress = false;
+    //   takeModePress();
+    // }
+
+    // Consume any MODE press so it doesn't accumulate stale events.
+    takeModePress();
   }
 
   // ── Bypass switch warning — HIGHEST display priority ─────────────────────
@@ -1048,24 +1064,24 @@ void uiFunc(bool lx) {
   }
 
   if (statusScreenActive) {
-    if ((now - statusScreenLastInput) >= 15000UL) {
+    if ((now - statusScreenLastInput) >= 30000UL) {
       statusScreenActive = 0;
       clearNavEvents();
       lcdDisplayState = 255;   // force immediate redraw via state machine
       return;
     }
 
-    if (rotValPlus) {
+    if (navDn) {
       statusScreenIndex = (statusScreenIndex + 1) % STATUS_SCREEN_ITEMS;
-      rotValPlus = 0;
+      navDn = 0;
       statusScreenLastInput = now;
       showStatusScreenItem(statusScreenIndex);
       return;
     }
 
-    if (rotValMinus) {
+    if (navUp) {
       statusScreenIndex = (statusScreenIndex + (STATUS_SCREEN_ITEMS - 1)) % STATUS_SCREEN_ITEMS;
-      rotValMinus = 0;
+      navUp = 0;
       statusScreenLastInput = now;
       showStatusScreenItem(statusScreenIndex);
       return;
@@ -1074,14 +1090,14 @@ void uiFunc(bool lx) {
     bool modePressed = takeModePress();
 
     // DISABLED — ENTER in Status List → countdown editor (reserved for future use)
-    // if (rotPush) {
-    //   rotPush = 0;
+    // if (navEnter) {
+    //   navEnter = 0;
     //   statusScreenActive = 0;
     //   clearNavEvents();
     //   invokeCountdownEditor();   // runs get2ValFunc() inline — no menuUi routing needed
     //   return;
     // }
-    if (rotPush) { rotPush = 0; }   // consume ENTER — no action while hotkey is disabled
+    if (navEnter) { navEnter = 0; }   // consume ENTER — no action while hotkey is disabled
 
     if (takeMenuPress() || modePressed) {
       statusScreenActive = 0;
@@ -1123,9 +1139,9 @@ void uiFunc(bool lx) {
     }
 
     // UP / DOWN resets the idle timer (screen stays visible)
-    if (rotValPlus || rotValMinus) {
-      rotValPlus      = 0;
-      rotValMinus     = 0;
+    if (navDn || navUp) {
+      navDn      = 0;
+      navUp     = 0;
       liveDataLastInput = now;
     }
 
@@ -1138,7 +1154,7 @@ void uiFunc(bool lx) {
       return;
     }
 
-    if (rotPush) { rotPush = 0; }   // consume, no action
+    if (navEnter) { navEnter = 0; }   // consume, no action
 
     // Refresh live V/I values every 1 s
     static unsigned long liveRefreshMs = 0;
@@ -1158,17 +1174,17 @@ void uiFunc(bool lx) {
   }
 
   // DISABLED — ENTER hotkey for countdown mode (reserved for future use)
-  // if (rotPush) {
-  //   rotPush = 0;
+  // if (navEnter) {
+  //   navEnter = 0;
   //   invokeCountdownEditor();   // ENTER hotkey: open countdown timer editor directly
   //   return;
   // }
-  if (rotPush) { rotPush = 0; }   // consume ENTER — no action while hotkey is disabled
+  if (navEnter) { navEnter = 0; }   // consume ENTER — no action while hotkey is disabled
 
-  if (rotValPlus || rotValMinus) {
+  if (navDn || navUp) {
     uint8_t curMode = normalizeModeForUi(storage.modeM1);
-    rotValPlus  = 0;
-    rotValMinus = 0;
+    navDn  = 0;
+    navUp = 0;
     if (curMode == 2 || curMode == 3 || curMode == 4) {
       // Cyclic / Countdown / Scheduler → live V/I data screen
       liveDataScreenActive = true;

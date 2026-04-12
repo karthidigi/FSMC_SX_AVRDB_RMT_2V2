@@ -19,7 +19,7 @@ bool leakageVars  = 0;   // current imbalance / leakage fault
 // Dry run uses its own filtered-current threshold (not m1StaVars / STA_MIN_AMPHS).
 // 0.5A was too high — a pump running dry may draw less, keeping motorOn=false and
 // preventing fault detection. 0.1A is above ADC noise floor when motor is fully stopped.
-#define DRY_RUN_MOTOR_MIN_A    0.1f   // filtered Iavg must exceed this to treat motor as running
+#define DRY_RUN_MOTOR_MIN_A    1.0f   // filtered Iavg must exceed this to treat motor as running
 
 // 5-sample moving-average filter for phase currents
 #define CURR_FILTER_LEN  5
@@ -206,15 +206,10 @@ void openWireCheck() {
   static unsigned long owClearMs = 0;
 
   float Iavg = curIavgFilt;
-  // Clamp owTh to a physically valid range (0.1–5.0 A).
-  // Upper bound 5.0 A matches the maximum user-settable value in the PRESET menu.
-  // The clamp prevents garbage EEPROM bytes from setting owTh far out of range.
-  float owTh = 1.0f;
-  if (storage.openWireThA > 0.0f && storage.openWireThA <= 5.0f) {
-    owTh = storage.openWireThA;
-  }
-  float Imin   = min(curRFilt, min(curYFilt, curBFilt));
-  bool anyLow  = (Imin < owTh);   // strict < : phase at exactly threshold is not an open wire
+  float owTh = (storage.openWireThA > 0.0f) ? storage.openWireThA : 1.0f;
+  bool anyLow = (curRFilt <= owTh ||
+                 curYFilt <= owTh ||
+                 curBFilt <= owTh);
 
   if (m1StaVars && (millis() - m1OnBuffMillis >= 1000)) {
     if (anyLow && Iavg > OPEN_WIRE_IAVG_MIN_A) {

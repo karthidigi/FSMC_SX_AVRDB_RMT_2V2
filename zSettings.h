@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////
-#define FIRMWARE_VERSION        "FSMC_3PHSX"
-#define HARDWARE_VERSION        "0.0.2"
+#define FIRMWARE_VERSION        "FSMC_H1_V2_2"
+#define HARDWARE_VERSION        "2.2.0"
 ////////////////////////////////////////////////////////////////////////////////////////////////
 // Serial Monitor for Debug Purpose
 #define SERIAL_DEBUG                // for serial monitor, comment it before uploading to a product
@@ -48,7 +48,7 @@
 #define ENCRYPTION_ENABLED 1
 
 #define CONFIG_START 30
-#define CONFIG_VERSION "9002"   // bumped: openWireThA/leakagePct garbage fix — forces EEPROM reload with safe defaults
+#define CONFIG_VERSION "001"   // bumped: openWireThA/leakagePct garbage fix — forces EEPROM reload with safe defaults
 
 // REMOTE_ID removed — remote serial is now stored via LoRa pairing (storage.remote).
 // Commented-out IDs kept for reference only.

@@ -33,7 +33,7 @@ void setup() {
   delay(100);
   initHwPins();
   hwSerialInit();
-  rotaryInit();
+  btnInit();
   i2c1Init();
   lcdInit();
   emonInit();
@@ -96,7 +96,7 @@ void loop() {
     menuUi();
   }
   ////////////////
-  rotaryVal();
+  btnNavUpdate();
   loraTxFunc();
   wdt_reset();
 

@@ -18,9 +18,9 @@ char tmpVal[17];
 int var1 = 0, var2 = 0;
 float var3 = 0.0;
 
-void rotaryVal() {
+void btnNavUpdate() {
 
-  if (rotValPlus) {
+  if (navDn) {
     if (mlvl1) {
       menuPos = menuPos + 1000;
       if (menuPos > 7000) menuPos = 1000;   // wrap DOWN past [HOME] → MODES
@@ -32,9 +32,9 @@ void rotaryVal() {
       menuPos = menuPos + 1;
     }
     Serial3.println(menuPos);
-    rotValPlus = 0;
+    navDn = 0;
   }
-  if (rotValMinus) {
+  if (navUp) {
     if (mlvl1) {
       menuPos = menuPos - 1000;
       if (menuPos < 1000) menuPos = 7000;   // wrap UP past MODES → [HOME]
@@ -46,10 +46,10 @@ void rotaryVal() {
       menuPos = menuPos - 1;
     }
     Serial3.println(menuPos);
-    rotValMinus = 0;
+    navUp = 0;
   }
 
-  if (rotPush) {
+  if (navEnter) {
     if (mlvl1) {
       mlvl1 = 0;
       mlvl2 = 1;
@@ -78,7 +78,7 @@ void rotaryVal() {
       mlvl4 = 0;
       Serial3.println("L1");
     }
-    rotPush = 0;
+    navEnter = 0;
   }
 }
 
@@ -115,20 +115,23 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
   while (1) {
     wdt_reset();
     if (millis() - selfDestruct >= 30000) {
-      mainMenuShow();
+      menuUiFunc      = 0;
+      lcdDisplayState = 255;
+      clearNavEvents();
       return 0;
     }
 
-    rotaryFunc();
+    btnScan();
+    checkHoldRepeat(t1Selec || t2Selec);
     if (takeMenuPress()) {
       mainMenuShow();
       return 0;
     }
 
     // --- Increment / Decrement ---
-    if (rotValPlus || rotValMinus) {
+    if (navDn || navUp) {
       menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
-      int delta = (rotValMinus ? 1 : -1);
+      int delta = (navUp ? 1 : -1);
 
       if (t1Selec) {
         //tVal1 = constrain(tVal1 + delta, 0, xT);
@@ -139,10 +142,10 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
         tVal2 = (tVal2 + delta + (yT + 1)) % (yT + 1);
       }
 
-      rotValPlus = rotValMinus = 0;
+      navDn = navUp = 0;
     }
 
-    if (rotPush) {
+    if (navEnter) {
       menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
       if (t1Selec) {
         t1Selec = 0;
@@ -165,7 +168,7 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
         okSelec = 0;
         canSelec = 0;
       }
-      rotPush = 0;
+      navEnter = 0;
     }
 
     if (millis() - lastmillis > 300) {
@@ -219,7 +222,7 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
     bpCounter = 0;
     while ((okSelec || canSelec) && isEnterButtonDown()) {
       wdt_reset();
-      rotaryFunc();
+      btnScan();
       //Serial3.println(bpCounter);
       delay(5);
       bpCounter = bpCounter + 1;
@@ -239,7 +242,7 @@ bool get2ValFunc(String ValName, int &t1, int &t2, char x, int xT, char y, int y
           return 0;
         }
       }
-      // rotPush = 1;  // REMOVED: was wrongly advancing okSelec→canSelec every hold iteration
+      // navEnter = 1;  // REMOVED: was wrongly advancing okSelec→canSelec every hold iteration
     }
   }
 }
@@ -262,20 +265,23 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
   while (1) {
     wdt_reset();
     if (millis() - selfDestruct >= 30000) {
-      mainMenuShow();
+      menuUiFunc      = 0;
+      lcdDisplayState = 255;
+      clearNavEvents();
       return 0;
     }
 
-    rotaryFunc();
+    btnScan();
+    checkHoldRepeat(v1Selec);
     if (takeMenuPress()) {
       mainMenuShow();
       return 0;
     }
 
     // --- Increment / Decrement ---
-    if (rotValPlus || rotValMinus) {
+    if (navDn || navUp) {
       menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
-      float delta = (rotValMinus ? 0.5f : -0.5f);
+      float delta = (navUp ? 0.5f : -0.5f);
 
       if (v1Selec) {
         tVal1 += delta;
@@ -287,10 +293,10 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
           tVal1 = xT;
         }
       }
-      rotValPlus = rotValMinus = 0;
+      navDn = navUp = 0;
     }
 
-    if (rotPush) {
+    if (navEnter) {
       menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
       if (v1Selec) {
         v1Selec = 0;
@@ -305,7 +311,7 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
         okSelec = 0;
         canSelec = 0;
       }
-      rotPush = 0;
+      navEnter = 0;
     }
 
     if (millis() - lastmillis > 300) {
@@ -363,7 +369,7 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
     bpCounter = 0;
     while ((okSelec || canSelec) && isEnterButtonDown()) {
       wdt_reset();
-      rotaryFunc();
+      btnScan();
       //Serial3.println(bpCounter);
       delay(5);
       bpCounter = bpCounter + 1;
@@ -383,7 +389,7 @@ bool get1VaFloatFun(String ValName, float &v1, char x, float xT, float yT) {
           return 0;
         }
       }
-      // rotPush = 1;  // REMOVED: was wrongly advancing okSelec→canSelec every hold iteration
+      // navEnter = 1;  // REMOVED: was wrongly advancing okSelec→canSelec every hold iteration
     }
   }
 }
@@ -406,20 +412,23 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
   while (1) {
     wdt_reset();
     if (millis() - selfDestruct >= 30000) {
-      mainMenuShow();
+      menuUiFunc      = 0;
+      lcdDisplayState = 255;
+      clearNavEvents();
       return 0;
     }
 
-    rotaryFunc();
+    btnScan();
+    checkHoldRepeat(v1Selec);
     if (takeMenuPress()) {
       mainMenuShow();
       return 0;
     }
 
     // --- Increment / Decrement ---
-    if (rotValPlus || rotValMinus) {
+    if (navDn || navUp) {
       menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
-      int delta = (rotValMinus ? 10 : -10);
+      int delta = (navUp ? 10 : -10);
 
       if (v1Selec) {
         tVal1 = tVal1 + delta;
@@ -430,10 +439,10 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
           tVal1 = xT;
         }
       }
-      rotValPlus = rotValMinus = 0;
+      navDn = navUp = 0;
     }
 
-    if (rotPush) {
+    if (navEnter) {
       menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
       if (v1Selec) {
         v1Selec = 0;
@@ -448,7 +457,7 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
         okSelec = 0;
         canSelec = 0;
       }
-      rotPush = 0;
+      navEnter = 0;
     }
 
     if (millis() - lastmillis > 300) {
@@ -494,7 +503,7 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
     bpCounter = 0;
     while ((okSelec || canSelec) && isEnterButtonDown()) {
       wdt_reset();
-      rotaryFunc();
+      btnScan();
       //Serial3.println(bpCounter);
       delay(5);
       bpCounter = bpCounter + 1;
@@ -513,7 +522,7 @@ bool get1ValFunc(String ValName, int &v1, char x, int xT, int yT) {
           return 0;
         }
       }
-      // rotPush = 1;  // REMOVED: was wrongly advancing okSelec→canSelec every hold iteration
+      // navEnter = 1;  // REMOVED: was wrongly advancing okSelec→canSelec every hold iteration
     }
   }
 }
@@ -535,25 +544,28 @@ bool get1ValFuncS1(String ValName, uint8_t &v1, char x, int xT, int yT) {
   while (1) {
     wdt_reset();
     if (millis() - selfDestruct >= 30000) {
-      mainMenuShow();
+      menuUiFunc      = 0;
+      lcdDisplayState = 255;
+      clearNavEvents();
       return 0;
     }
-    rotaryFunc();
+    btnScan();
+    checkHoldRepeat(v1Selec);
     if (takeMenuPress()) {
       mainMenuShow();
       return 0;
     }
-    if (rotValPlus || rotValMinus) {
+    if (navDn || navUp) {
       menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
-      int delta = (rotValMinus ? 1 : -1);
+      int delta = (navUp ? 1 : -1);
       if (v1Selec) {
         tVal1 = tVal1 + delta;
         if (tVal1 < xT) tVal1 = yT;
         if (tVal1 > yT) tVal1 = xT;
       }
-      rotValPlus = rotValMinus = 0;
+      navDn = navUp = 0;
     }
-    if (rotPush) {
+    if (navEnter) {
       menuLastInput = selfDestruct = millis();  // reset both idle timers on activity
       if (v1Selec) {
         v1Selec = 0;
@@ -568,7 +580,7 @@ bool get1ValFuncS1(String ValName, uint8_t &v1, char x, int xT, int yT) {
         okSelec = 0;
         canSelec = 0;
       }
-      rotPush = 0;
+      navEnter = 0;
     }
     if (millis() - lastmillis > 300) {
       blinker = !blinker;
@@ -593,7 +605,7 @@ bool get1ValFuncS1(String ValName, uint8_t &v1, char x, int xT, int yT) {
     bpCounter = 0;
     while ((okSelec || canSelec) && isEnterButtonDown()) {
       wdt_reset();
-      rotaryFunc();
+      btnScan();
       delay(5);
       bpCounter++;
       if (bpCounter >= BPCOUNTER) {
@@ -654,19 +666,20 @@ void menuUi() {
   }
 
   if (menuUiFunc) {
-    rotaryFunc();
+    btnScan();
     unsigned long now = millis();
 
     if (menuLastInput == 0) {
       menuLastInput = now;
     }
-    if (rotValPlus || rotValMinus || rotPush || btnMenuPress || btnModePress) {
+    if (navDn || navUp || navEnter || btnMenuPress || btnModePress) {
       menuLastInput = now;
     }
     if ((now - menuLastInput) >= 30000UL) {
-      menuUiFunc = 0;
+      menuUiFunc      = 0;
       clearNavEvents();
-      menuLastInput = 0;
+      menuLastInput   = 0;
+      lcdDisplayState = 255;  // force home screen redraw after menu timeout
       return;
     }
 
@@ -1040,7 +1053,7 @@ void menuUi() {
           loadModeVal();
           uiFunc(1);
           menuUiFunc = 0;
-          lcd_modeShow();
+          lcd_presetApplied();
         }
         break;
 
@@ -1061,7 +1074,7 @@ void menuUi() {
           loadModeVal();
           uiFunc(1);
           menuUiFunc = 0;
-          lcd_modeShow();
+          lcd_presetApplied();
         }
         break;
       case 2300:
@@ -1081,7 +1094,7 @@ void menuUi() {
           loadModeVal();
           uiFunc(1);
           menuUiFunc = 0;
-          lcd_modeShow();
+          lcd_presetApplied();
         }
         break;
       case 2400:
@@ -1101,7 +1114,7 @@ void menuUi() {
           loadModeVal();
           uiFunc(1);
           menuUiFunc = 0;
-          lcd_modeShow();
+          lcd_presetApplied();
         }
         break;
       case 2500:
@@ -1118,7 +1131,7 @@ void menuUi() {
             savecon();
             uiFunc(1);
             menuUiFunc = 0;
-            lcd_modeShow();
+            lcd_presetApplied();
           }
           break;
         }
@@ -1135,7 +1148,7 @@ void menuUi() {
           savecon();
           uiFunc(1);
           menuUiFunc = 0;
-          lcd_modeShow();
+          lcd_presetApplied();
         }
         break;
 
@@ -1152,7 +1165,7 @@ void menuUi() {
           savecon();
           uiFunc(1);
           menuUiFunc = 0;
-          lcd_modeShow();
+          lcd_presetApplied();
         }
         break;
 
@@ -1294,7 +1307,7 @@ void menuUi() {
 
           while (1) {
             wdt_reset();
-            rotaryFunc();
+            btnScan();
 
             if (millis() - cfgTo >= 30000UL) {
               mainMenuShow();
@@ -1305,14 +1318,14 @@ void menuUi() {
               break;
             }
 
-            if (rotValPlus) {
+            if (navDn) {
               cfgSel = (cfgSel + 1) % CFG_N;
-              rotValPlus = 0;
+              navDn = 0;
               cfgTo = millis();
             }
-            if (rotValMinus) {
+            if (navUp) {
               cfgSel = (cfgSel == 0 ? CFG_N - 1 : cfgSel - 1);
-              rotValMinus = 0;
+              navUp = 0;
               cfgTo = millis();
             }
 
@@ -1401,7 +1414,7 @@ void menuUi() {
           lcd_print("  Reset WiFi?   ");
           while (1) {
             wdt_reset();
-            rotaryFunc();
+            btnScan();
             if (millis() - wfTimeout >= 30000UL) {
               mainMenuShow();
               break;
@@ -1410,9 +1423,9 @@ void menuUi() {
               mainMenuShow();
               break;
             }
-            if (rotValPlus || rotValMinus) {
+            if (navDn || navUp) {
               wfYes = !wfYes;
-              rotValPlus = rotValMinus = 0;
+              navDn = navUp = 0;
             }
             if (millis() - wfLast >= 400) {
               wfBlink = !wfBlink;
@@ -1426,7 +1439,7 @@ void menuUi() {
                 unsigned long _ps = millis();
                 while (millis() - _ps < 600) {
                   wdt_reset();
-                  rotaryFunc();
+                  btnScan();
                   delay(5);
                 }
               }
@@ -1455,7 +1468,7 @@ void menuUi() {
           savecon();
           uiFunc(1);
           menuUiFunc = 0;
-          lcd_modeShow();
+          lcd_presetApplied();
         }
         break;
 
@@ -1465,7 +1478,7 @@ void menuUi() {
           savecon();
           uiFunc(1);
           menuUiFunc = 0;
-          lcd_modeShow();
+          lcd_presetApplied();
         }
         break;
 
@@ -1491,7 +1504,7 @@ void menuUi() {
           lcd_print(" Reset Device?  ");
           while (1) {
             wdt_reset();
-            rotaryFunc();
+            btnScan();
             if (millis() - rdTimeout >= 30000UL) {
               mainMenuShow();
               break;
@@ -1500,9 +1513,9 @@ void menuUi() {
               mainMenuShow();
               break;
             }
-            if (rotValPlus || rotValMinus) {
+            if (navDn || navUp) {
               rdYes = !rdYes;
-              rotValPlus = rotValMinus = 0;
+              navDn = navUp = 0;
             }
             if (millis() - rdLast >= 400) {
               rdBlink = !rdBlink;
@@ -1516,7 +1529,7 @@ void menuUi() {
                 unsigned long _ps = millis();
                 while (millis() - _ps < 600) {
                   wdt_reset();
-                  rotaryFunc();
+                  btnScan();
                   delay(5);
                 }
               }
@@ -1585,27 +1598,28 @@ void menuUi() {
             }
           };
           drawLightSwitch();
+          clearNavEvents();   // discard the ENTER press that opened this screen
 
           while (1) {
             wdt_reset();
-            rotaryFunc();
+            btnScan();
             unsigned long nowSw = millis();
 
-            if (rotValMinus) {                // UP  → select ON
+            if (navUp) {                // UP  → select ON
               menuLastInput = selfDestruct = nowSw;
-              rotValMinus = 0;
+              navUp = 0;
               swSel = 0;
               drawLightSwitch();
             }
-            if (rotValPlus) {                 // DOWN → select OFF
+            if (navDn) {                 // DOWN → select OFF
               menuLastInput = selfDestruct = nowSw;
-              rotValPlus = 0;
+              navDn = 0;
               swSel = 1;
               drawLightSwitch();
             }
-            if (rotPush) {                    // ENTER → apply and exit
+            if (navEnter) {                    // ENTER → apply and exit
               menuLastInput = selfDestruct = nowSw;
-              rotPush = 0;
+              navEnter = 0;
               if (swSel == 0) {
                 digitalWrite(PIN_LiREL, HIGH);
                 if (storage.app2Run != 1) { storage.app2Run = 1; savecon(); }
@@ -1628,9 +1642,10 @@ void menuUi() {
               uiFunc(0);
               return;
             }
-            if (nowSw - selfDestruct > 30000UL) {      // idle timeout
-              menuUiFunc = 0;
-              uiFunc(0);
+            if (nowSw - selfDestruct > 15000UL) {      // idle timeout
+              menuUiFunc      = 0;
+              lcdDisplayState = 255;
+              clearNavEvents();
               return;
             }
           }
@@ -1685,20 +1700,20 @@ void menuUi() {
           bool isFirstEntry = (prevMenuPos != 5110);
           if (isFirstEntry) aboutDevPage = 0;
 
-          // Consume rotary events so rotaryVal() does NOT advance menuPos.
+          // Consume nav events so btnNavUpdate() does NOT advance menuPos.
           bool pageChanged = isFirstEntry;
-          if (rotValPlus) {
-            rotValPlus = 0;
+          if (navDn) {
+            navDn = 0;
             aboutDevPage = (aboutDevPage + 1) % ABOUT_PAGES;
             pageChanged = true;
           }
-          if (rotValMinus) {
-            rotValMinus = 0;
+          if (navUp) {
+            navUp = 0;
             aboutDevPage = (aboutDevPage + ABOUT_PAGES - 1) % ABOUT_PAGES;
             pageChanged = true;
           }
-          if (rotPush) {
-            rotPush = 0;
+          if (navEnter) {
+            navEnter = 0;
             aboutDevPage = (aboutDevPage + 1) % ABOUT_PAGES;
             pageChanged = true;
           }
